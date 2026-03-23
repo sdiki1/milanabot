@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -31,6 +32,7 @@ from bot.content import (
 )
 from bot.db import Database
 from bot.keyboards import pay_only_keyboard, payment_link_keyboard, start_keyboard
+from bot.tbank import TBankClient, TBankError, validate_notification_token
 
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,18 @@ class CourseBot:
         )
         self.dp = Dispatcher()
         self._reminder_task: asyncio.Task[None] | None = None
+        self._web_runner: web.AppRunner | None = None
+        self._web_site: web.BaseSite | None = None
+        self.tbank_client: TBankClient | None = None
+        if self.settings.tbank_enabled:
+            self.tbank_client = TBankClient(
+                terminal_key=self.settings.tbank_terminal_key,
+                password=self.settings.tbank_password,
+                api_url=self.settings.tbank_api_url,
+                notification_url=self.settings.tbank_notification_url,
+                success_url=self.settings.tbank_success_url,
+                fail_url=self.settings.tbank_fail_url,
+            )
         self._register_handlers()
 
     def _register_handlers(self) -> None:
@@ -66,6 +80,8 @@ class CourseBot:
 
     async def on_startup(self, bot: Bot) -> None:
         logger.info("Бот запущен. Кампания: %s", self.settings.campaign_year)
+        if self.tbank_client:
+            await self._start_tbank_notification_server()
         self._reminder_task = asyncio.create_task(self._reminder_loop())
 
     async def on_shutdown(self, bot: Bot) -> None:
@@ -75,6 +91,8 @@ class CourseBot:
                 await self._reminder_task
             except asyncio.CancelledError:
                 pass
+        if self._web_runner:
+            await self._web_runner.cleanup()
         self.db.close()
 
     async def run(self) -> None:
@@ -122,6 +140,52 @@ class CourseBot:
         if not callback.from_user:
             return
 
+        if self.tbank_client:
+            order_id = self._build_order_id(callback.from_user.id)
+            try:
+                result = await self.tbank_client.init_payment(
+                    order_id=order_id,
+                    amount_kopecks=self.settings.course_price_rub * 100,
+                    description=self.settings.tbank_order_description,
+                    data={"tg_user_id": str(callback.from_user.id)},
+                )
+            except TBankError as exc:
+                logger.warning("Ошибка T-Bank Init для user=%s: %s", callback.from_user.id, exc)
+                await self.bot.send_message(
+                    callback.from_user.id,
+                    "Не удалось создать платеж T‑Bank. Попробуй еще раз через минуту.",
+                )
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Неожиданная ошибка T-Bank Init user=%s: %s", callback.from_user.id, exc)
+                await self.bot.send_message(
+                    callback.from_user.id,
+                    "Техническая ошибка при создании оплаты. Попробуй позже.",
+                )
+                return
+
+            self.db.create_tbank_order(
+                order_id=result.order_id,
+                user_id=callback.from_user.id,
+                amount=self.settings.course_price_rub * 100,
+                payment_id=result.payment_id,
+                status="NEW",
+            )
+
+            payment_text = (
+                "Оплата через T‑Bank Online.\n"
+                "После успешной оплаты доступ откроется автоматически в течение 1-2 минут.\n\n"
+                f"Стоимость: {self.settings.course_price_rub}₽\n"
+                f"{self._legal_notice()}"
+            )
+            await self._send_with_optional_photos(
+                chat_id=callback.from_user.id,
+                text=payment_text,
+                photos=self._promo_photos(),
+                reply_markup=payment_link_keyboard(result.payment_url),
+            )
+            return
+
         if self.settings.payment_provider_token:
             await self.bot.send_invoice(
                 chat_id=callback.from_user.id,
@@ -156,7 +220,7 @@ class CourseBot:
 
         await self.bot.send_message(
             callback.from_user.id,
-            "Оплата не настроена: укажите PAYMENT_URL или PAYMENT_PROVIDER_TOKEN в .env.",
+            "Оплата не настроена: укажите реквизиты T‑Bank или fallback PAYMENT_URL/PAYMENT_PROVIDER_TOKEN в .env.",
         )
 
     async def handle_paid_request(self, callback: CallbackQuery) -> None:
@@ -206,6 +270,88 @@ class CourseBot:
         self.db.set_paid(user_id, True)
         await self._send_access_links(user_id)
         await message.answer(f"Пользователь {user_id} отмечен как оплативший.")
+
+    def _build_order_id(self, user_id: int) -> str:
+        return f"mila_{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+
+    async def _start_tbank_notification_server(self) -> None:
+        app = web.Application()
+        app.router.add_post(self.settings.webhook_path, self._handle_tbank_notification)
+        self._web_runner = web.AppRunner(app)
+        await self._web_runner.setup()
+
+        self._web_site = web.TCPSite(
+            self._web_runner,
+            host=self.settings.webhook_host,
+            port=self.settings.webhook_port,
+        )
+        await self._web_site.start()
+        logger.info(
+            "T-Bank webhook server started at %s:%s%s",
+            self.settings.webhook_host,
+            self.settings.webhook_port,
+            self.settings.webhook_path,
+        )
+
+    async def _handle_tbank_notification(self, request: web.Request) -> web.Response:
+        if not self.tbank_client:
+            return web.Response(status=503, text="DISABLED")
+
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.Response(status=400, text="BAD_REQUEST")
+
+        if not isinstance(payload, dict):
+            return web.Response(status=400, text="BAD_REQUEST")
+
+        if not validate_notification_token(payload, self.settings.tbank_password):
+            logger.warning("T-Bank callback rejected: invalid token")
+            return web.Response(status=403, text="INVALID_TOKEN")
+
+        asyncio.create_task(self._process_tbank_notification(payload))
+        return web.Response(status=200, text="OK")
+
+    async def _process_tbank_notification(self, payload: dict) -> None:
+        order_id = str(payload.get("OrderId", "")).strip()
+        payment_id = str(payload.get("PaymentId", "")).strip()
+        status = str(payload.get("Status", "")).upper().strip()
+        error_code = str(payload.get("ErrorCode", "")).strip()
+        raw_success = payload.get("Success")
+        success = raw_success is True or str(raw_success).lower() in {"true", "1"}
+
+        if order_id:
+            self.db.update_tbank_order_status(order_id, status or "UNKNOWN", payment_id)
+
+        if not order_id:
+            return
+
+        user_id = self.db.get_tbank_order_user_id(order_id)
+        if user_id is None:
+            logger.warning("T-Bank callback for unknown order_id=%s", order_id)
+            return
+
+        if success and error_code in ("", "0") and status in {"AUTHORIZED", "CONFIRMED"}:
+            if not self.db.is_paid(user_id):
+                self.db.set_paid(user_id, True)
+                await self._send_access_links(user_id)
+                if self.settings.admin_ids:
+                    await self._notify_admins(
+                        "Подтверждена оплата T‑Bank:\n"
+                        f"- user_id: <code>{user_id}</code>\n"
+                        f"- order_id: <code>{order_id}</code>\n"
+                        f"- status: {status}"
+                    )
+            return
+
+        if status in {"REJECTED", "CANCELED", "DEADLINE_EXPIRED"}:
+            try:
+                await self.bot.send_message(
+                    user_id,
+                    "Платеж не завершен. Попробуй оплатить снова через кнопку «Оплатить».",
+                )
+            except TelegramBadRequest:
+                pass
 
     async def _send_access_links(self, user_id: int) -> None:
         chat_link = await self._create_one_time_link(self.settings.course_chat_id)

@@ -32,11 +32,28 @@ def _parse_urls(raw_value: str) -> tuple[str, ...]:
     return tuple(items)
 
 
+def _parse_int(raw_value: str, default: int) -> int:
+    value = raw_value.strip()
+    if not value:
+        return default
+    return int(value)
+
+
 @dataclass(frozen=True)
 class Settings:
     bot_token: str
     payment_url: str
     payment_provider_token: str
+    tbank_terminal_key: str
+    tbank_password: str
+    tbank_api_url: str
+    tbank_notification_url: str
+    tbank_success_url: str
+    tbank_fail_url: str
+    tbank_order_description: str
+    webhook_host: str
+    webhook_port: int
+    webhook_path: str
     offer_url: str
     privacy_url: str
     support_contact: str
@@ -49,6 +66,10 @@ class Settings:
     timezone: str
     campaign_year: int
     db_path: str
+
+    @property
+    def tbank_enabled(self) -> bool:
+        return bool(self.tbank_terminal_key and self.tbank_password)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -63,6 +84,23 @@ class Settings:
             bot_token=bot_token,
             payment_url=os.getenv("PAYMENT_URL", "").strip(),
             payment_provider_token=os.getenv("PAYMENT_PROVIDER_TOKEN", "").strip(),
+            tbank_terminal_key=os.getenv("TBANK_TERMINAL_KEY", "").strip(),
+            tbank_password=os.getenv("TBANK_PASSWORD", "").strip(),
+            tbank_api_url=os.getenv("TBANK_API_URL", "https://securepay.tinkoff.ru/v2").strip()
+            or "https://securepay.tinkoff.ru/v2",
+            tbank_notification_url=os.getenv("TBANK_NOTIFICATION_URL", "").strip(),
+            tbank_success_url=os.getenv("TBANK_SUCCESS_URL", "").strip(),
+            tbank_fail_url=os.getenv("TBANK_FAIL_URL", "").strip(),
+            tbank_order_description=(
+                os.getenv(
+                    "TBANK_ORDER_DESCRIPTION",
+                    "Пакет уроков «Искусство быть красивой»",
+                ).strip()
+                or "Пакет уроков «Искусство быть красивой»"
+            ),
+            webhook_host=os.getenv("WEBHOOK_HOST", "0.0.0.0").strip() or "0.0.0.0",
+            webhook_port=_parse_int(os.getenv("WEBHOOK_PORT", "8080"), 8080),
+            webhook_path=os.getenv("WEBHOOK_PATH", "/tbank/notification").strip() or "/tbank/notification",
             offer_url=os.getenv("OFFER_URL", "").strip(),
             privacy_url=os.getenv("PRIVACY_URL", "").strip(),
             support_contact=os.getenv("SUPPORT_CONTACT", "@beautymi30").strip() or "@beautymi30",

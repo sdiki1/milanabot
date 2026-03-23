@@ -7,8 +7,8 @@ def start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="ОПЛАТИТЬ", callback_data="pay"),
-                InlineKeyboardButton(text="ПОДРОБНЕЕ", callback_data="details"),
+                InlineKeyboardButton(text="Оплатить", callback_data="pay"),
+                InlineKeyboardButton(text="Подробнее", callback_data="details"),
             ]
         ]
     )
@@ -16,14 +16,14 @@ def start_keyboard() -> InlineKeyboardMarkup:
 
 def pay_only_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="ОПЛАТИТЬ", callback_data="pay")]]
+        inline_keyboard=[[InlineKeyboardButton(text="Оплатить", callback_data="pay")]]
     )
 
 
 def payment_link_keyboard(payment_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="ОПЛАТИТЬ", url=payment_url)],
-            [InlineKeyboardButton(text="Я ОПЛАТИЛА", callback_data="paid_request")],
+            [InlineKeyboardButton(text="Оплатить", url=payment_url)],
+            [InlineKeyboardButton(text="Я оплатила", callback_data="paid_request")],
         ]
     )

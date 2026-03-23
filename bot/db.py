@@ -34,6 +34,19 @@ class Database:
                 )
                 """
             )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tbank_orders (
+                    order_id TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    amount INTEGER NOT NULL,
+                    payment_id TEXT,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
             self._connection.commit()
 
     def upsert_user(self, user_id: int, username: str | None, first_name: str | None) -> None:
@@ -111,3 +124,57 @@ class Database:
     def close(self) -> None:
         with self._lock:
             self._connection.close()
+
+    def create_tbank_order(
+        self,
+        order_id: str,
+        user_id: int,
+        amount: int,
+        payment_id: str,
+        status: str = "NEW",
+    ) -> None:
+        now_utc = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._connection.execute(
+                """
+                INSERT INTO tbank_orders (
+                    order_id, user_id, amount, payment_id, status, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(order_id) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    amount = excluded.amount,
+                    payment_id = excluded.payment_id,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at
+                """,
+                (order_id, user_id, amount, payment_id, status, now_utc, now_utc),
+            )
+            self._connection.commit()
+
+    def update_tbank_order_status(
+        self,
+        order_id: str,
+        status: str,
+        payment_id: str = "",
+    ) -> None:
+        now_utc = datetime.now(timezone.utc).isoformat()
+        with self._lock:
+            self._connection.execute(
+                """
+                UPDATE tbank_orders
+                SET status = ?, payment_id = COALESCE(NULLIF(?, ''), payment_id), updated_at = ?
+                WHERE order_id = ?
+                """,
+                (status, payment_id, now_utc, order_id),
+            )
+            self._connection.commit()
+
+    def get_tbank_order_user_id(self, order_id: str) -> int | None:
+        with self._lock:
+            cursor = self._connection.execute(
+                "SELECT user_id FROM tbank_orders WHERE order_id = ?",
+                (order_id,),
+            )
+            row = cursor.fetchone()
+        return int(row[0]) if row else None

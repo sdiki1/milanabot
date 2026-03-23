@@ -4,6 +4,7 @@
 - `/start` + приветствие с фото
 - кнопки `ОПЛАТИТЬ` и `ПОДРОБНЕЕ`
 - блоки «Что тебя ждет?» и карточки уроков
+- оплата через T-Bank Online эквайринг (`Init` + платежная ссылка)
 - фиксация оплаты и выдача одноразовых ссылок в чат/канал
 - автонапоминания неоплатившим по датам (3, 5, 6, 7 апреля, `Europe/Moscow`)
 
@@ -23,9 +24,12 @@ cp .env.example .env
 
 Заполни минимум:
 - `BOT_TOKEN`
-- `PAYMENT_URL` (если внешняя оплата) или `PAYMENT_PROVIDER_TOKEN` (если Telegram Invoices)
+- `TBANK_TERMINAL_KEY`
+- `TBANK_PASSWORD`
+- `TBANK_NOTIFICATION_URL` (публичный URL callback)
 - `COURSE_CHAT_ID`, `COURSE_CHANNEL_ID` (бот должен быть админом)
 - `ADMIN_IDS` (кому приходит подтверждение оплаты)
+- `WEBHOOK_HOST`, `WEBHOOK_PORT`, `WEBHOOK_PATH`
 
 ## 3. Запуск
 
@@ -36,17 +40,29 @@ set +a
 python -m bot.main
 ```
 
-## Как подтверждать оплату (если внешняя оплата)
+## Webhook T-Bank
 
-Пользователь нажимает `Я ОПЛАТИЛА` -> админу приходит ID.
+T-Bank отправляет callback на `TBANK_NOTIFICATION_URL`.
+Локально бот поднимает HTTP endpoint по `WEBHOOK_HOST:WEBHOOK_PORT` + `WEBHOOK_PATH`.
 
-Админ отправляет боту:
+Пример:
+
+```text
+TBANK_NOTIFICATION_URL=https://your-domain.com/tbank/notification
+WEBHOOK_HOST=0.0.0.0
+WEBHOOK_PORT=8080
+WEBHOOK_PATH=/tbank/notification
+```
+
+После статуса `CONFIRMED`/`AUTHORIZED` бот автоматически выдает доступ.
+
+## Ручное подтверждение (fallback)
+
+Если нужно выдать доступ вручную:
 
 ```text
 /confirm_paid 123456789
 ```
-
-После этого бот отправляет пользователю одноразовые ссылки в чат и канал.
 
 ## Важно
 
