@@ -8,8 +8,11 @@ services:
     env_file:
       - .env
     environment:
-      ENABLE_TBANK_WEBHOOK: "false"
+      ENABLE_TBANK_WEBHOOK: "true"
+      WEBHOOK_HOST: 0.0.0.0
       DB_PATH: /app/data/bot_data.sqlite3
+    ports:
+      - "${WEBHOOK_PORT:-8080}:${WEBHOOK_PORT:-8080}"
     volumes:
       - bot_data:/app/data
     command: >

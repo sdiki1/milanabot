@@ -7,7 +7,9 @@ def start_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Оплатить", callback_data="pay"),
+                InlineKeyboardButton(text="Оплатить", callback_data="pay")
+            ],
+            [
                 InlineKeyboardButton(text="Подробнее", callback_data="details"),
             ]
         ]

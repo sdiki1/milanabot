@@ -25,7 +25,7 @@ cp .env.example .env
 Заполни минимум:
 - `BOT_TOKEN`
 - `TBANK_TERMINAL_KEY`
-- `TBANK_PASSWORD`
+- `TBANK_PASSWORD` (SecretKey/Password терминала из кабинета эквайринга)
 - `COURSE_CHAT_ID`, `COURSE_CHANNEL_ID` (бот должен быть админом)
 - `ADMIN_IDS` (кому приходит подтверждение оплаты)
 - `ENABLE_TBANK_WEBHOOK=false` (по умолчанию)

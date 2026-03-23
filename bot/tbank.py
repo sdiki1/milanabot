@@ -105,8 +105,13 @@ class TBankClient:
         success = raw_success is True or str(raw_success).lower() in {"true", "1"}
         error_code = str(response_payload.get("ErrorCode", ""))
         if not success or (error_code and error_code != "0"):
+            message = str(response_payload.get("Message", "")).strip()
+            details = str(response_payload.get("Details", "")).strip()
+            hint = ""
+            if error_code in {"204", "205"}:
+                hint = " hint=Проверьте пару TerminalKey/SecretKey (TBANK_TERMINAL_KEY/TBANK_PASSWORD)."
             raise TBankError(
-                f"T-Bank Init error: code={error_code}, message={response_payload.get('Message')}"
+                f"T-Bank Init error: code={error_code}, message={message}, details={details}.{hint}"
             )
 
         payment_url = (
