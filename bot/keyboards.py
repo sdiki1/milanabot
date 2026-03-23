@@ -20,6 +20,15 @@ def pay_only_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def details_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Оплатить", callback_data="pay")],
+            [InlineKeyboardButton(text="Что тебя ждёт?", callback_data="what_to_expect")],
+        ]
+    )
+
+
 def payment_link_keyboard(payment_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

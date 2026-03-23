@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+from aiogram.enums import ChatAction, ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
@@ -23,15 +23,16 @@ from dotenv import load_dotenv
 from bot.config import Settings
 from bot.content import (
     COURSE_OVERVIEW_TEXT,
-    LESSON_TEXTS,
+    LESSON_SHOWCASE,
     PAID_PENDING_TEXT,
     PAYMENT_TEXT,
+    START_PHOTO_URL,
     START_TEXT,
     Reminder,
     build_reminders,
 )
 from bot.db import Database
-from bot.keyboards import pay_only_keyboard, payment_link_keyboard, start_keyboard
+from bot.keyboards import details_keyboard, pay_only_keyboard, payment_link_keyboard, start_keyboard
 from bot.tbank import TBankClient, TBankError, validate_notification_token
 
 
@@ -60,7 +61,9 @@ class CourseBot:
                 terminal_key=self.settings.tbank_terminal_key,
                 password=self.settings.tbank_password,
                 api_url=self.settings.tbank_api_url,
-                notification_url=self.settings.tbank_notification_url,
+                notification_url=(
+                    self.settings.tbank_notification_url if self.settings.enable_tbank_webhook else ""
+                ),
                 success_url=self.settings.tbank_success_url,
                 fail_url=self.settings.tbank_fail_url,
             )
@@ -72,6 +75,7 @@ class CourseBot:
 
         self.dp.message.register(self.handle_start, CommandStart())
         self.dp.callback_query.register(self.handle_details, F.data == "details")
+        self.dp.callback_query.register(self.handle_what_to_expect, F.data == "what_to_expect")
         self.dp.callback_query.register(self.handle_pay, F.data == "pay")
         self.dp.callback_query.register(self.handle_paid_request, F.data == "paid_request")
         self.dp.pre_checkout_query.register(self.handle_pre_checkout_query)
@@ -80,7 +84,7 @@ class CourseBot:
 
     async def on_startup(self, bot: Bot) -> None:
         logger.info("Бот запущен. Кампания: %s", self.settings.campaign_year)
-        if self.tbank_client:
+        if self.tbank_client and self.settings.enable_tbank_webhook:
             await self._start_tbank_notification_server()
         self._reminder_task = asyncio.create_task(self._reminder_loop())
 
@@ -118,22 +122,23 @@ class CourseBot:
         if not callback.message:
             return
 
-        chat_id = callback.message.chat.id
-        await self._send_with_optional_photos(
-            chat_id=chat_id,
+        await self.bot.send_message(
+            callback.message.chat.id,
             text=COURSE_OVERVIEW_TEXT,
-            photos=self._promo_photos(),
-            reply_markup=pay_only_keyboard(),
+            reply_markup=details_keyboard(),
+            disable_web_page_preview=True,
         )
 
-        for lesson_text in LESSON_TEXTS:
-            await asyncio.sleep(0.2)
-            await self._send_with_optional_photos(
-                chat_id=chat_id,
-                text=lesson_text,
-                photos=self._promo_photos(),
-                reply_markup=pay_only_keyboard(),
-            )
+    async def handle_what_to_expect(self, callback: CallbackQuery) -> None:
+        await callback.answer()
+        if not callback.message:
+            return
+
+        chat_id = callback.message.chat.id
+        for lesson in LESSON_SHOWCASE:
+            if lesson.typing_before_seconds > 0:
+                await self._simulate_typing(chat_id, lesson.typing_before_seconds)
+            await self._send_lesson_with_photos(chat_id, lesson.text, lesson.photos)
 
     async def handle_pay(self, callback: CallbackQuery) -> None:
         await callback.answer()
@@ -174,8 +179,12 @@ class CourseBot:
 
             payment_text = (
                 "Оплата через T‑Bank Online.\n"
-                "После успешной оплаты доступ откроется автоматически в течение 1-2 минут.\n\n"
-                f"Стоимость: {self.settings.course_price_rub}₽\n"
+                + (
+                    "После успешной оплаты доступ откроется автоматически в течение 1-2 минут.\n\n"
+                    if self.settings.enable_tbank_webhook
+                    else "После оплаты нажми «Я оплатила», и мы подтвердим доступ вручную.\n\n"
+                )
+                + f"Стоимость: {self.settings.course_price_rub}₽\n"
                 f"{self._legal_notice()}"
             )
             await self._send_with_optional_photos(
@@ -428,12 +437,56 @@ class CourseBot:
         )
 
     def _welcome_photos(self) -> tuple[str, ...]:
+        if START_PHOTO_URL:
+            return (START_PHOTO_URL,)
         if self.settings.welcome_photo_url:
             return (self.settings.welcome_photo_url,)
         return self._promo_photos()
 
     def _promo_photos(self) -> tuple[str, ...]:
         return self.settings.promo_photo_urls[:2]
+
+    async def _simulate_typing(self, chat_id: int, seconds: int) -> None:
+        remaining = max(0, seconds)
+        while remaining > 0:
+            await self.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+            step = min(4, remaining)
+            await asyncio.sleep(step)
+            remaining -= step
+
+    async def _send_lesson_with_photos(
+        self,
+        chat_id: int,
+        text: str,
+        photos: tuple[str, ...],
+    ) -> None:
+        if not photos:
+            await self.bot.send_message(chat_id, text, reply_markup=pay_only_keyboard())
+            return
+
+        if len(photos) == 1:
+            try:
+                await self.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=photos[0],
+                    caption=text,
+                    reply_markup=pay_only_keyboard(),
+                )
+            except TelegramBadRequest:
+                await self.bot.send_message(chat_id, text, reply_markup=pay_only_keyboard())
+            return
+
+        try:
+            for url in photos[:-1]:
+                await self.bot.send_photo(chat_id=chat_id, photo=url)
+            await self.bot.send_photo(
+                chat_id=chat_id,
+                photo=photos[-1],
+                caption=text,
+                reply_markup=pay_only_keyboard(),
+            )
+        except TelegramBadRequest:
+            await self.bot.send_message(chat_id, text, reply_markup=pay_only_keyboard())
 
     async def _send_with_optional_photos(
         self,

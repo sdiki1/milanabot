@@ -1,0 +1,19 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: milana_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENABLE_TBANK_WEBHOOK: "false"
+      DB_PATH: /app/data/bot_data.sqlite3
+    volumes:
+      - bot_data:/app/data
+    command: >
+      sh -c "mkdir -p /app/data && python -m bot.main"
+
+volumes:
+  bot_data:

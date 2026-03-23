@@ -5,8 +5,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-START_TEXT = """Привет, это Милана 🤍
-Поздравляю! Ты попала в мой бот, а значит хочешь научиться делать макияж и прически для себя.
+START_TEXT = """Привет🤍
+Это Милана
+Поздравляю! Ты попала в мой бот, а значит хочешь научится делать макияж и прически для себя.
 
 «Искусство быть красивой»
 Для девушек, которые хотят:
@@ -16,9 +17,11 @@ START_TEXT = """Привет, это Милана 🤍
 ✨ делать актуальные укладки быстро и красиво"""
 
 
-COURSE_OVERVIEW_TEXT = """Что тебя ждет:
+START_PHOTO_URL = "https://downloader.disk.yandex.ru/preview/1ae5d701258a0cbf769b6b7a26a114c09978b08eea36334ea5a8fce7ddddff7a/69c1e943/_WP18JlBQza-DgxclvoxXzXMY-ieV2pSykoPIzDQMK64JASGyXmUP5VN2LMMN9yAwSxdD8nuU4woEEI1uGEwgA%3D%3D?uid=0&filename=IMG_4609.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048"
 
-4 основных онлайн-урока:
+COURSE_OVERVIEW_TEXT = """Что вас ждет:
+
+4 основных онлайн урока:
 - Дневной макияж
 - Вечерний макияж со стрелкой
 - Укладка на стайлере «Луна»
@@ -27,36 +30,77 @@ COURSE_OVERVIEW_TEXT = """Что тебя ждет:
 Плюс бонусные уроки:
 - Подготовка кожи к макияжу
 - Оформление декольте
-- Как создать идеальный объем на волосах
+- Как создать идеальный объём на волосах
 
-Плюс мой личный гайд «ХОЧУ / МОГУ»:
-покажу люксовую косметику и ее бюджетные аналоги, чтобы выглядеть роскошно без лишних трат.
+Плюс мой личный гайд «ХОЧУ/ МОГУ» я покажу люксовую косметику и ее бюджетные аналоги, чтобы выглядеть роскошно без лишних трат
 
 💬 Общий чат с участницами
 🎥 Прямой эфир
 📩 Обратная связь по вашим отработкам
 ❓ Ответы на любые вопросы
-🎁 Розыгрыши крутых подарков
+🎁РОЗЫГРЫШИ крутых подарков
 
-Доступ: навсегда
-Стоимость: 2999₽ вместо 3999₽
-⏰ Скидка действует до 6 апреля"""
+ДОСТУП: навсегда
+
+СТОИМОСТЬ: 2999₽ вместо 3999₽
+
+⏰скидка действует до 6 апреля
+
+👉 Нажимай «ОПЛАТИТЬ» и забирай доступ
+
+⏩️ по возникшим вопросам пиши @beautymi30
+
+Нажимая кнопку «Оплатить» я безоговорочно соглашаюсь с условиями Оферты, даю согласие на обработку своих персональных данных в соответствии с Политикой обработки персональных данных.
+
+https://disk.yandex.ru/i/ekLrZ4k5qdWVsQ"""
 
 
-LESSON_TEXTS = [
-    """ДНЕВНОЙ МАКИЯЖ
+@dataclass(frozen=True)
+class LessonShowcase:
+    text: str
+    photos: tuple[str, ...]
+    typing_before_seconds: int = 0
+
+
+LESSON_SHOWCASE = [
+    LessonShowcase(
+        text="""ДНЕВНОЙ МАКИЯЖ
 Суперлегкий нюд на каждый день.
 Акцент на сияющей, ровной коже и мягкой коррекции сухими продуктами.""",
-    """ВЕЧЕРНИЙ МАКИЯЖ
+        photos=(
+            "https://downloader.disk.yandex.ru/preview/3712467a8755b72dcce619257922b9f9c3d3c49689142462d6bf3641b7a78034/69c1ea10/LoNhhxmUVIa5i2mxEYxuWTXMY-ieV2pSykoPIzDQMK6YezRZdBm73XypeMcjamejcHWkkEVIQgq1ZiGiKzkApw%3D%3D?uid=0&filename=IMG_3764.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
+            "https://downloader.disk.yandex.ru/preview/ab27716a4385d4897b961d967c4943855348c70474fd2ff8d0ce9df04470478a/69c1ea2e/uEOD26o8O-Bud2n36JE99MmAR647dkQ62DWTrRC4yzEZFhQCHgIpSmwVHyVXVZQNxuzFQoXPRobEG85GQspRdw%3D%3D?uid=0&filename=IMG_3761.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
+        ),
+    ),
+    LessonShowcase(
+        text="""ВЕЧЕРНИЙ МАКИЯЖ
 Самая простая и быстрая техника вечернего макияжа с аккуратной стрелкой.
 Подходит абсолютно всем — легко повторит каждая.""",
-    """УКЛАДКА «НА ЛУНУ»
+        photos=(
+            "https://downloader.disk.yandex.ru/preview/daa6688fd0eaa621257278ce419c6fb2f271413d44a4eb6e70d6128a726ec66f/69c1ea71/MO25ThnZ1ijyhZbZaK1kZpk6LUxXSNjpTD0bHERBembv_2cwPNLjDuBojpEPFDdGziy52jJJzNxtTeDrDYHPHQ%3D%3D?uid=0&filename=IMG_3762.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
+            "https://downloader.disk.yandex.ru/preview/be8b0971ecf8d0575e8e6b21b3ffd2ecc4366c564f9cb3390ebbf1d3626ac06d/69c1ea93/4hM2d74PGwlT-yDzk2nSQItW8aaQpNmWOfSlJt-4fjD41Iyt0e_4nvnKc_V1tT6Pfb6N4flsikJE01mfT8jgMA%3D%3D?uid=0&filename=IMG_3763.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
+        ),
+        typing_before_seconds=6,
+    ),
+    LessonShowcase(
+        text="""УКЛАДКА «НА ЛУНУ»
 Быстрая укладка с мягкими, подвижными локонами на бюджетный стайлер.
 Просто, понятно и реально повторить даже новичку.""",
-    """ОБЪЕМНАЯ УКЛАДКА НА БИГУДИ
+        photos=(
+            "https://downloader.disk.yandex.ru/preview/13d0ab5c6f0e05baa048ce20a00bb9f546a379bfa944bcb98bccdc1739c198be/69c1ead1/oO3n4PG5pGWjyRft_J6udM5MxByW2OANKfui0UoPJSWm9rE5rR9ZGHPcBKJbes0kXtmSuWmRXR4LVd2owSW-tg%3D%3D?uid=0&filename=IMG_3760.HEIC&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
+        ),
+        typing_before_seconds=5,
+    ),
+    LessonShowcase(
+        text="""ОБЪЁМНАЯ УКЛАДКА НА БИГУДИ
 Роскошная укладка в стиле Old Money.
-Идеально для тех, кто любит объем и эффект «дорого».
+Идеально для тех, кто любит объём и эффект «дорого».
 Потребует чуть больше времени, но результат того стоит.""",
+        photos=(
+            "https://downloader.disk.yandex.ru/preview/0180f3a3a4decc972f697288ff8d078d18f4c1a4d00a07c730c01b2c8c2e22f8/69c1eafb/BSZIYs46bftndK3Nv_aQCYtW8aaQpNmWOfSlJt-4fjC8jOi9UUhbXiKp7E9Lmr9GGmbAb7Pa7ZnvRse-hGqITQ%3D%3D?uid=0&filename=IMG_3759.HEIC&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
+        ),
+        typing_before_seconds=5,
+    ),
 ]
 
 

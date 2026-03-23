@@ -39,6 +39,13 @@ def _parse_int(raw_value: str, default: int) -> int:
     return int(value)
 
 
+def _parse_bool(raw_value: str, default: bool = False) -> bool:
+    value = raw_value.strip().lower()
+    if not value:
+        return default
+    return value in {"1", "true", "yes", "y", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     bot_token: str
@@ -47,6 +54,7 @@ class Settings:
     tbank_terminal_key: str
     tbank_password: str
     tbank_api_url: str
+    enable_tbank_webhook: bool
     tbank_notification_url: str
     tbank_success_url: str
     tbank_fail_url: str
@@ -88,6 +96,7 @@ class Settings:
             tbank_password=os.getenv("TBANK_PASSWORD", "").strip(),
             tbank_api_url=os.getenv("TBANK_API_URL", "https://securepay.tinkoff.ru/v2").strip()
             or "https://securepay.tinkoff.ru/v2",
+            enable_tbank_webhook=_parse_bool(os.getenv("ENABLE_TBANK_WEBHOOK", ""), False),
             tbank_notification_url=os.getenv("TBANK_NOTIFICATION_URL", "").strip(),
             tbank_success_url=os.getenv("TBANK_SUCCESS_URL", "").strip(),
             tbank_fail_url=os.getenv("TBANK_FAIL_URL", "").strip(),
