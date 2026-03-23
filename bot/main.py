@@ -477,14 +477,9 @@ class CourseBot:
             return
 
         try:
-            for url in photos[:-1]:
-                await self.bot.send_photo(chat_id=chat_id, photo=url)
-            await self.bot.send_photo(
-                chat_id=chat_id,
-                photo=photos[-1],
-                caption=text,
-                reply_markup=pay_only_keyboard(),
-            )
+            media = [InputMediaPhoto(media=url) for url in photos]
+            await self.bot.send_media_group(chat_id=chat_id, media=media)
+            await self.bot.send_message(chat_id=chat_id, text=text, reply_markup=pay_only_keyboard())
         except TelegramBadRequest:
             await self.bot.send_message(chat_id, text, reply_markup=pay_only_keyboard())
 
