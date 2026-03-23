@@ -30,6 +30,17 @@ cp .env.example .env
 - `ADMIN_IDS` (кому приходит подтверждение оплаты)
 - `ENABLE_TBANK_WEBHOOK=false` (по умолчанию)
 
+### Проверка TerminalKey/SecretKey вручную
+
+```bash
+python scripts/check_tbank_init.py \
+  --terminal-key "ВАШ_TERMINAL_KEY" \
+  --secret-key 'ВАШ_SECRET_KEY_С_СИМВОЛОМ_#' \
+  --amount-kop 1000
+```
+
+Если получаешь `ErrorCode=204/205`, значит пара ключей некорректна (или от разных терминалов).
+
 ## 3. Запуск через Docker Compose
 
 ```bash
