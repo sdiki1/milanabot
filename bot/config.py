@@ -62,6 +62,11 @@ class Settings:
     webhook_host: str
     webhook_port: int
     webhook_path: str
+    admin_panel_enabled: bool
+    admin_panel_username: str
+    admin_panel_password: str
+    content_store_path: str
+    content_upload_dir: str
     offer_url: str
     privacy_url: str
     support_contact: str
@@ -87,6 +92,8 @@ class Settings:
 
         timezone = os.getenv("TIMEZONE", "Europe/Moscow").strip() or "Europe/Moscow"
         default_year = datetime.now(ZoneInfo(timezone)).year
+        db_path = os.getenv("DB_PATH", "bot_data.sqlite3").strip() or "bot_data.sqlite3"
+        db_dir = os.path.dirname(db_path) or "."
 
         return cls(
             bot_token=bot_token,
@@ -110,6 +117,17 @@ class Settings:
             webhook_host=os.getenv("WEBHOOK_HOST", "0.0.0.0").strip() or "0.0.0.0",
             webhook_port=_parse_int(os.getenv("WEBHOOK_PORT", "8080"), 8080),
             webhook_path=os.getenv("WEBHOOK_PATH", "/tbank/notification").strip() or "/tbank/notification",
+            admin_panel_enabled=_parse_bool(os.getenv("ADMIN_PANEL_ENABLED", "true"), True),
+            admin_panel_username=os.getenv("ADMIN_PANEL_USERNAME", "admin").strip() or "admin",
+            admin_panel_password=os.getenv("ADMIN_PANEL_PASSWORD", "change_me").strip() or "change_me",
+            content_store_path=(
+                os.getenv("CONTENT_STORE_PATH", os.path.join(db_dir, "content_overrides.json")).strip()
+                or os.path.join(db_dir, "content_overrides.json")
+            ),
+            content_upload_dir=(
+                os.getenv("CONTENT_UPLOAD_DIR", os.path.join(db_dir, "uploads")).strip()
+                or os.path.join(db_dir, "uploads")
+            ),
             offer_url=os.getenv("OFFER_URL", "").strip(),
             privacy_url=os.getenv("PRIVACY_URL", "").strip(),
             support_contact=os.getenv("SUPPORT_CONTACT", "@beautymi30").strip() or "@beautymi30",
@@ -121,5 +139,5 @@ class Settings:
             course_price_rub=int(os.getenv("COURSE_PRICE_RUB", "2999")),
             timezone=timezone,
             campaign_year=int(os.getenv("CAMPAIGN_YEAR", str(default_year))),
-            db_path=os.getenv("DB_PATH", "bot_data.sqlite3").strip() or "bot_data.sqlite3",
+            db_path=db_path,
         )

@@ -9,8 +9,11 @@ services:
       - .env
     environment:
       ENABLE_TBANK_WEBHOOK: "true"
+      ADMIN_PANEL_ENABLED: "true"
       WEBHOOK_HOST: 0.0.0.0
       DB_PATH: /app/data/bot_data.sqlite3
+      CONTENT_STORE_PATH: /app/data/content_overrides.json
+      CONTENT_UPLOAD_DIR: /app/data/uploads
     ports:
       - "${WEBHOOK_PORT:-8080}:${WEBHOOK_PORT:-8080}"
     volumes:

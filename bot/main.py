@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import html
+import hmac
 import logging
+import os
+import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from aiohttp import web
+from aiohttp.web_request import FileField
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction, ParseMode
@@ -14,6 +20,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
+    FSInputFile,
     InputMediaPhoto,
     LabeledPrice,
     Message,
@@ -23,15 +30,12 @@ from dotenv import load_dotenv
 
 from bot.config import Settings
 from bot.content import (
-    COURSE_OVERVIEW_TEXT,
-    LESSON_SHOWCASE,
     PAID_PENDING_TEXT,
     PAYMENT_TEXT,
-    START_PHOTO_URL,
-    START_TEXT,
     Reminder,
     build_reminders,
 )
+from bot.content_store import ContentStore, split_photo_sources
 from bot.db import Database
 from bot.keyboards import details_keyboard, pay_only_keyboard, payment_link_keyboard, start_keyboard
 from bot.tbank import TBankClient, TBankError, validate_notification_token
@@ -47,6 +51,10 @@ class CourseBot:
         self.reminders = build_reminders(settings.campaign_year, self.tz)
         self.db = Database(settings.db_path)
         self.db.init()
+        self.content_store = ContentStore(
+            path=settings.content_store_path,
+            upload_dir=settings.content_upload_dir,
+        )
 
         self.bot = Bot(
             token=settings.bot_token,
@@ -85,8 +93,8 @@ class CourseBot:
 
     async def on_startup(self, bot: Bot) -> None:
         logger.info("Бот запущен. Кампания: %s", self.settings.campaign_year)
-        if self.tbank_client and self.settings.enable_tbank_webhook:
-            await self._start_tbank_notification_server()
+        if self.settings.enable_tbank_webhook or self.settings.admin_panel_enabled:
+            await self._start_http_server()
         self._reminder_task = asyncio.create_task(self._reminder_loop())
 
     async def on_shutdown(self, bot: Bot) -> None:
@@ -112,11 +120,12 @@ class CourseBot:
             first_name=message.from_user.first_name,
         )
         safe_name = html.escape(message.from_user.first_name or "девушка")
-        start_text = START_TEXT.replace("{name}", safe_name)
+        dynamic = self.content_store.get_content()
+        start_text = dynamic.start_text.replace("{name}", safe_name)
         await self._send_with_optional_photos(
             chat_id=message.chat.id,
             text=start_text,
-            photos=self._welcome_photos(),
+            photos=dynamic.start_photos,
             reply_markup=start_keyboard(),
         )
 
@@ -125,9 +134,10 @@ class CourseBot:
         if not callback.message:
             return
 
+        dynamic = self.content_store.get_content()
         await self.bot.send_message(
             callback.message.chat.id,
-            text=COURSE_OVERVIEW_TEXT,
+            text=dynamic.course_overview_text,
             reply_markup=details_keyboard(),
             disable_web_page_preview=True,
             parse_mode=ParseMode.HTML,
@@ -139,7 +149,8 @@ class CourseBot:
             return
 
         chat_id = callback.message.chat.id
-        for lesson in LESSON_SHOWCASE:
+        dynamic = self.content_store.get_content()
+        for lesson in dynamic.lessons:
             if lesson.typing_before_seconds > 0:
                 await self._simulate_typing(chat_id, lesson.typing_before_seconds)
             await self._send_lesson_with_photos(chat_id, lesson.text, lesson.photos)
@@ -286,9 +297,14 @@ class CourseBot:
     def _build_order_id(self, user_id: int) -> str:
         return f"mila_{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
-    async def _start_tbank_notification_server(self) -> None:
+    async def _start_http_server(self) -> None:
         app = web.Application()
-        app.router.add_post(self.settings.webhook_path, self._handle_tbank_notification)
+        app.router.add_get("/", self._handle_root)
+        if self.settings.enable_tbank_webhook:
+            app.router.add_post(self.settings.webhook_path, self._handle_tbank_notification)
+        if self.settings.admin_panel_enabled:
+            app.router.add_get("/admin", self._handle_admin_get)
+            app.router.add_post("/admin", self._handle_admin_post)
         self._web_runner = web.AppRunner(app)
         await self._web_runner.setup()
 
@@ -298,12 +314,185 @@ class CourseBot:
             port=self.settings.webhook_port,
         )
         await self._web_site.start()
-        logger.info(
-            "T-Bank webhook server started at %s:%s%s",
-            self.settings.webhook_host,
-            self.settings.webhook_port,
-            self.settings.webhook_path,
+        logger.info("HTTP server started at %s:%s", self.settings.webhook_host, self.settings.webhook_port)
+        if self.settings.enable_tbank_webhook:
+            logger.info("Webhook path active: %s", self.settings.webhook_path)
+        if self.settings.admin_panel_enabled:
+            logger.info("Admin panel active at /admin")
+
+    async def _handle_root(self, request: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
+    def _is_admin_authorized(self, request: web.Request) -> bool:
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Basic "):
+            return False
+        token = auth_header[6:]
+        try:
+            decoded = base64.b64decode(token).decode("utf-8")
+        except Exception:
+            return False
+        username, _, password = decoded.partition(":")
+        return (
+            hmac.compare_digest(username, self.settings.admin_panel_username)
+            and hmac.compare_digest(password, self.settings.admin_panel_password)
         )
+
+    def _admin_unauthorized(self) -> web.Response:
+        return web.Response(
+            status=401,
+            text="Unauthorized",
+            headers={"WWW-Authenticate": 'Basic realm="Milana Bot Admin"'},
+        )
+
+    async def _handle_admin_get(self, request: web.Request) -> web.Response:
+        if not self._is_admin_authorized(request):
+            return self._admin_unauthorized()
+        return web.Response(
+            text=self._render_admin_html(saved=request.query.get("saved") == "1"),
+            content_type="text/html",
+        )
+
+    async def _handle_admin_post(self, request: web.Request) -> web.Response:
+        if not self._is_admin_authorized(request):
+            return self._admin_unauthorized()
+
+        form = await request.post()
+        current = self.content_store.get_content()
+        lesson_count = len(current.lessons)
+
+        start_text = str(form.get("start_text", current.start_text))
+        overview_text = str(form.get("course_overview_text", current.course_overview_text))
+
+        start_photo_urls_raw = str(
+            form.get("start_photo_urls", "\n".join(current.start_photos))
+        )
+        start_photos = split_photo_sources(start_photo_urls_raw)
+        start_photos.extend(self._extract_uploaded_paths(form, "start_photo_files"))
+
+        lessons_payload: list[dict[str, object]] = []
+        for idx in range(lesson_count):
+            current_lesson = current.lessons[idx]
+            lesson_text = str(form.get(f"lesson_{idx}_text", current_lesson.text))
+            photos_raw = str(
+                form.get(f"lesson_{idx}_photo_urls", "\n".join(current_lesson.photos))
+            )
+            photos = split_photo_sources(photos_raw)
+            photos.extend(self._extract_uploaded_paths(form, f"lesson_{idx}_photo_files"))
+            typing_raw = str(form.get(f"lesson_{idx}_typing", current_lesson.typing_before_seconds))
+            try:
+                typing_before = max(0, int(typing_raw))
+            except ValueError:
+                typing_before = current_lesson.typing_before_seconds
+            lessons_payload.append(
+                {
+                    "text": lesson_text,
+                    "photos": photos,
+                    "typing_before_seconds": typing_before,
+                }
+            )
+
+        self.content_store.update(
+            start_text=start_text,
+            start_photos=start_photos,
+            course_overview_text=overview_text,
+            lessons=lessons_payload,
+        )
+        raise web.HTTPFound(location="/admin?saved=1")
+
+    def _extract_uploaded_paths(self, form, field_name: str) -> list[str]:
+        values = form.getall(field_name, [])
+        saved_paths: list[str] = []
+        for value in values:
+            if not isinstance(value, FileField):
+                continue
+            if not value.filename:
+                continue
+            raw_name = os.path.basename(value.filename)
+            safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw_name)
+            if not safe_name:
+                safe_name = "upload.bin"
+            unique_name = f"{int(datetime.now(timezone.utc).timestamp() * 1000)}_{secrets.token_hex(4)}_{safe_name}"
+            path = Path(self.content_store.upload_dir) / unique_name
+            with path.open("wb") as output:
+                output.write(value.file.read())
+            saved_paths.append(str(path))
+        return saved_paths
+
+    def _render_admin_html(self, saved: bool = False) -> str:
+        dynamic = self.content_store.get_content()
+
+        def esc(value: str) -> str:
+            return html.escape(value, quote=True)
+
+        lesson_blocks: list[str] = []
+        for idx, lesson in enumerate(dynamic.lessons):
+            lesson_blocks.append(
+                f"""
+                <section class="card">
+                  <h2>Сообщение 3.{idx + 1}</h2>
+                  <label>Текст</label>
+                  <textarea name="lesson_{idx}_text" rows="7">{esc(lesson.text)}</textarea>
+                  <label>Фото/ссылки (по одной строке)</label>
+                  <textarea name="lesson_{idx}_photo_urls" rows="4">{esc("\\n".join(lesson.photos))}</textarea>
+                  <label>Загрузить фото файлами (добавятся к списку)</label>
+                  <input type="file" name="lesson_{idx}_photo_files" multiple accept="image/*" />
+                  <label>Задержка печати перед этим блоком (сек)</label>
+                  <input type="number" min="0" name="lesson_{idx}_typing" value="{lesson.typing_before_seconds}" />
+                </section>
+                """
+            )
+
+        saved_banner = "<div class='ok'>Сохранено.</div>" if saved else ""
+        return f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Milana Bot Admin</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 0; background:#f3f5f7; color:#1c1c1c; }}
+    .wrap {{ max-width: 1100px; margin: 24px auto; padding: 0 16px 48px; }}
+    h1 {{ margin: 0 0 12px; }}
+    .ok {{ background:#e8f7e8; border:1px solid #94d894; padding:10px 12px; border-radius:8px; margin: 12px 0; }}
+    .card {{ background:#fff; border:1px solid #d9dde3; border-radius:12px; padding:16px; margin-top:16px; }}
+    label {{ display:block; font-size:14px; margin:10px 0 6px; color:#4d5561; }}
+    textarea, input[type="number"], input[type="text"], input[type="file"] {{ width:100%; box-sizing:border-box; }}
+    textarea, input[type="number"], input[type="text"] {{ border:1px solid #c9d0d8; border-radius:8px; padding:10px; background:#fff; }}
+    button {{ margin-top:20px; background:#1f6feb; color:#fff; border:none; border-radius:10px; padding:12px 18px; font-size:15px; cursor:pointer; }}
+    .hint {{ font-size:13px; color:#667084; }}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Milana Bot Admin</h1>
+    <p class="hint">Редактируй тексты и фото. Для фото можно указать ссылки или загрузить файлы.</p>
+    {saved_banner}
+    <form method="post" enctype="multipart/form-data">
+      <section class="card">
+        <h2>Сообщение 1 (Start)</h2>
+        <label>Текст</label>
+        <textarea name="start_text" rows="9">{esc(dynamic.start_text)}</textarea>
+        <label>Фото/ссылки (по одной строке)</label>
+        <textarea name="start_photo_urls" rows="3">{esc("\\n".join(dynamic.start_photos))}</textarea>
+        <label>Загрузить фото файлами (добавятся к списку)</label>
+        <input type="file" name="start_photo_files" multiple accept="image/*" />
+      </section>
+
+      <section class="card">
+        <h2>Сообщение 2 (Подробнее)</h2>
+        <label>Текст</label>
+        <textarea name="course_overview_text" rows="14">{esc(dynamic.course_overview_text)}</textarea>
+      </section>
+
+      {"".join(lesson_blocks)}
+
+      <button type="submit">Сохранить Изменения</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
 
     async def _handle_tbank_notification(self, request: web.Request) -> web.Response:
         if not self.tbank_client:
@@ -437,14 +626,25 @@ class CourseBot:
         )
 
     def _welcome_photos(self) -> tuple[str, ...]:
-        if START_PHOTO_URL:
-            return (START_PHOTO_URL,)
+        dynamic = self.content_store.get_content()
+        if dynamic.start_photos:
+            return dynamic.start_photos
         if self.settings.welcome_photo_url:
             return (self.settings.welcome_photo_url,)
         return self._promo_photos()
 
     def _promo_photos(self) -> tuple[str, ...]:
         return self.settings.promo_photo_urls[:2]
+
+    def _photo_input(self, source: str):
+        source = source.strip()
+        if not source:
+            return source
+        if source.startswith(("http://", "https://")):
+            return source
+        if os.path.exists(source):
+            return FSInputFile(source)
+        return source
 
     async def _simulate_typing(self, chat_id: int, seconds: int) -> None:
         remaining = max(0, seconds)
@@ -473,7 +673,7 @@ class CourseBot:
             try:
                 await self.bot.send_photo(
                     chat_id=chat_id,
-                    photo=photos[0],
+                    photo=self._photo_input(photos[0]),
                     caption=text,
                     reply_markup=pay_only_keyboard(),
                     parse_mode=ParseMode.HTML,
@@ -488,7 +688,7 @@ class CourseBot:
             return
 
         try:
-            media = [InputMediaPhoto(media=url) for url in photos]
+            media = [InputMediaPhoto(media=self._photo_input(url)) for url in photos]
             await self.bot.send_media_group(chat_id=chat_id, media=media)
             await self.bot.send_message(
                 chat_id=chat_id,
@@ -524,7 +724,7 @@ class CourseBot:
             try:
                 await self.bot.send_photo(
                     chat_id=chat_id,
-                    photo=photos[0],
+                    photo=self._photo_input(photos[0]),
                     caption=text,
                     reply_markup=reply_markup,
                     parse_mode=ParseMode.HTML,
@@ -539,8 +739,8 @@ class CourseBot:
                 )
                 return
 
-        media = [InputMediaPhoto(media=photos[0], caption=text, parse_mode=ParseMode.HTML)]
-        media.extend(InputMediaPhoto(media=url) for url in photos[1:])
+        media = [InputMediaPhoto(media=self._photo_input(photos[0]), caption=text, parse_mode=ParseMode.HTML)]
+        media.extend(InputMediaPhoto(media=self._photo_input(url)) for url in photos[1:])
         try:
             await self.bot.send_media_group(chat_id=chat_id, media=media)
             if reply_markup:

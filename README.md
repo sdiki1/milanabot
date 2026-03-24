@@ -29,6 +29,8 @@ cp .env.example .env
 - `COURSE_CHAT_ID`, `COURSE_CHANNEL_ID` (бот должен быть админом)
 - `ADMIN_IDS` (кому приходит подтверждение оплаты)
 - `ENABLE_TBANK_WEBHOOK=false` (по умолчанию)
+- `ADMIN_PANEL_ENABLED=true`
+- `ADMIN_PANEL_USERNAME`, `ADMIN_PANEL_PASSWORD` (доступ к сайту `/admin`)
 
 ### Проверка TerminalKey/SecretKey вручную
 
@@ -52,6 +54,14 @@ docker compose up -d --build
 ```bash
 docker compose logs -f bot
 ```
+
+Админ-панель:
+
+```text
+https://your-domain.com/admin
+```
+
+Логин/пароль берутся из `.env` (`ADMIN_PANEL_USERNAME`, `ADMIN_PANEL_PASSWORD`).
 
 Остановка:
 
@@ -100,3 +110,4 @@ T-Bank отправляет callback на `TBANK_NOTIFICATION_URL`.
 - Авто-добавление в канал Telegram API не поддерживает: бот выдает одноразовую ссылку на вступление.
 - Чтобы одноразовые ссылки создавались, бот должен иметь права администратора в чате и канале.
 - В Docker Compose база SQLite хранится в volume `bot_data` по пути `/app/data/bot_data.sqlite3`.
+- Контент админ-панели хранится в `/app/data/content_overrides.json`, загруженные фото — в `/app/data/uploads`.
