@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -110,9 +111,11 @@ class CourseBot:
             username=message.from_user.username,
             first_name=message.from_user.first_name,
         )
+        safe_name = html.escape(message.from_user.first_name or "девушка")
+        start_text = START_TEXT.replace("{name}", safe_name)
         await self._send_with_optional_photos(
             chat_id=message.chat.id,
-            text=START_TEXT,
+            text=start_text,
             photos=self._welcome_photos(),
             reply_markup=start_keyboard(),
         )

@@ -5,55 +5,50 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-START_TEXT = """Привет🤍
+START_TEXT = """Привет, {name} 🤍
 Это Милана
-Поздравляю! Ты попала в мой бот, а значит хочешь научится делать макияж и прически для себя.
 
-<i>«Искусство быть красивой»</i>
-Для девушек, которые хотят:
+Поздравляю! Ты попала в мой бот — значит, хочешь научиться делать макияж и причёски для себя ✨
 
-✨ делать дневной макияж, чтобы выглядеть ухоженно и дорого каждый день
+<b>«Искусство быть красивой» — это для девушек, которые хотят:</b>
 
-✨ делать роскошный вечерний макияж со стрелкой
-
-✨ делать актуальные укладки быстро и красиво"""
+✨ делать дневной макияж и выглядеть ухоженно каждый день
+✨ создавать роскошный вечерний макияж со стрелками
+✨ делать актуальные укладки быстро и красиво
+"""
 
 
 START_PHOTO_URL = "https://downloader.disk.yandex.ru/preview/1ae5d701258a0cbf769b6b7a26a114c09978b08eea36334ea5a8fce7ddddff7a/69c1e943/_WP18JlBQza-DgxclvoxXzXMY-ieV2pSykoPIzDQMK64JASGyXmUP5VN2LMMN9yAwSxdD8nuU4woEEI1uGEwgA%3D%3D?uid=0&filename=IMG_4609.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048"
 
-COURSE_OVERVIEW_TEXT = """<b>Что вас ждет:</b>
+COURSE_OVERVIEW_TEXT = """
+<b>Что тебя ждёт:</b>
 
-4 основных онлайн урока:
-- Дневной макияж
-- Вечерний макияж со стрелкой
-- Укладка на стайлере «Луна»
-- Объемная укладка с помощью бигуди
+4 основных онлайн-урока:
+— дневной макияж
+— вечерний макияж со стрелкой
+— укладка на стайлер «Луна»
+— объёмная укладка с помощью бигуди
 
-Плюс бонусные уроки:
-- Подготовка кожи к макияжу
-- Оформление декольте
-- Как создать идеальный объём на волосах
+<b>Бонусные уроки:</b>
+— подготовка кожи к макияжу
+— оформление декольте
+— как создать идеальный объём на волосах
 
-Плюс мой личный гайд <b>«ХОЧУ/ МОГУ»</b> я покажу люксовую косметику и ее бюджетные аналоги, чтобы выглядеть роскошно без лишних трат
+Плюс мой личный гайд «ХОЧУ / МОГУ» —
+покажу люксовую косметику и её бюджетные аналоги, чтобы ты выглядела дорого без лишних трат
 
-💬 Общий чат с участницами
-🎥 Прямой эфир
-📩 Обратная связь по вашим отработкам
-❓ Ответы на любые вопросы
-🎁РОЗЫГРЫШИ крутых подарков
+💬 общий чат с участницами
+🎥 прямые эфиры
+📩 обратная связь по твоим работам
+❓ ответы на любые вопросы
+🎁 розыгрыши подарков
 
-<b>ДОСТУП</b>: навсегда
+<b>Доступ:</b> навсегда
 
-<b>СТОИМОСТЬ</b>: 2999₽ вместо <strike>3999₽</strike>
+<b>Стоимость:</b> 2999₽ вместо <strike>3999₽</strike>
+⏳ скидка действует до 6 апреля
 
-⏰скидка действует до 6 апреля
-
-👉 Нажимай <b>«ОПЛАТИТЬ»</b> и забирай доступ
-
-⏩️ по возникшим вопросам пиши @beautymi30
-
-Нажимая кнопку «Оплатить» я безоговорочно соглашаюсь с условиями <a href="https://disk.yandex.ru/i/ekLrZ4k5qdWVsQ">Оферты</a>, даю согласие на обработку своих персональных данных в соответствии с Политикой обработки персональных данных.
-
+👉 Нажимай «Оплатить» и забирай доступ
 """
 
 
@@ -66,18 +61,20 @@ class LessonShowcase:
 
 LESSON_SHOWCASE = [
     LessonShowcase(
-        text="""<b>ДНЕВНОЙ МАКИЯЖ</b>
-Суперлегкий нюд на каждый день.
-Акцент на сияющей, ровной коже и мягкой коррекции сухими продуктами.""",
+        text="""<b>Дневной макияж</b>
+Лёгкий и быстрый образ на каждый день.
+Акцент на сияющей коже и мягкой коррекции сухими продуктами.
+""",
         photos=(
             "https://downloader.disk.yandex.ru/preview/3712467a8755b72dcce619257922b9f9c3d3c49689142462d6bf3641b7a78034/69c1ea10/LoNhhxmUVIa5i2mxEYxuWTXMY-ieV2pSykoPIzDQMK6YezRZdBm73XypeMcjamejcHWkkEVIQgq1ZiGiKzkApw%3D%3D?uid=0&filename=IMG_3764.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
             "https://downloader.disk.yandex.ru/preview/ab27716a4385d4897b961d967c4943855348c70474fd2ff8d0ce9df04470478a/69c1ea2e/uEOD26o8O-Bud2n36JE99MmAR647dkQ62DWTrRC4yzEZFhQCHgIpSmwVHyVXVZQNxuzFQoXPRobEG85GQspRdw%3D%3D?uid=0&filename=IMG_3761.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
         ),
     ),
     LessonShowcase(
-        text="""<b>ВЕЧЕРНИЙ МАКИЯЖ</b>
-Самая простая и быстрая техника вечернего макияжа с аккуратной стрелкой.
-Подходит абсолютно всем — легко повторит каждая.""",
+        text="""
+<b>Вечерний макияж</b>
+Простая и быстрая техника с аккуратной стрелкой.
+Подойдёт абсолютно всем — легко повторить даже новичку.""",
         photos=(
             "https://downloader.disk.yandex.ru/preview/daa6688fd0eaa621257278ce419c6fb2f271413d44a4eb6e70d6128a726ec66f/69c1ea71/MO25ThnZ1ijyhZbZaK1kZpk6LUxXSNjpTD0bHERBembv_2cwPNLjDuBojpEPFDdGziy52jJJzNxtTeDrDYHPHQ%3D%3D?uid=0&filename=IMG_3762.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
             "https://downloader.disk.yandex.ru/preview/be8b0971ecf8d0575e8e6b21b3ffd2ecc4366c564f9cb3390ebbf1d3626ac06d/69c1ea93/4hM2d74PGwlT-yDzk2nSQItW8aaQpNmWOfSlJt-4fjD41Iyt0e_4nvnKc_V1tT6Pfb6N4flsikJE01mfT8jgMA%3D%3D?uid=0&filename=IMG_3763.JPG&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
@@ -85,7 +82,8 @@ LESSON_SHOWCASE = [
         typing_before_seconds=6,
     ),
     LessonShowcase(
-        text="""<b>УКЛАДКА «НА ЛУНУ»</b>
+        text="""
+<b>Укладка «на Луну»</b>
 Быстрая укладка с мягкими, подвижными локонами на бюджетный стайлер.
 Просто, понятно и реально повторить даже новичку.""",
         photos=(
@@ -94,9 +92,9 @@ LESSON_SHOWCASE = [
         typing_before_seconds=5,
     ),
     LessonShowcase(
-        text="""<b>ОБЪЁМНАЯ УКЛАДКА НА БИГУДИ</b>
-Роскошная укладка в стиле Old Money.
-Идеально для тех, кто любит объём и эффект «дорого».
+        text="""<b>Объёмная укладка на бигуди</b>
+Роскошный объём в стиле Old Money.
+Идеально для тех, кто любит эффект «дорого».
 Потребует чуть больше времени, но результат того стоит.""",
         photos=(
             "https://downloader.disk.yandex.ru/preview/0180f3a3a4decc972f697288ff8d078d18f4c1a4d00a07c730c01b2c8c2e22f8/69c1eafb/BSZIYs46bftndK3Nv_aQCYtW8aaQpNmWOfSlJt-4fjC8jOi9UUhbXiKp7E9Lmr9GGmbAb7Pa7ZnvRse-hGqITQ%3D%3D?uid=0&filename=IMG_3759.HEIC&disposition=inline&hash=&limit=0&content_type=image%2Fjpeg&owner_uid=0&tknv=v3&size=2048x2048",
