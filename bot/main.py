@@ -429,8 +429,11 @@ class CourseBot:
         for idx, lesson in enumerate(dynamic.lessons):
             lesson_blocks.append(
                 f"""
-                <section class="card">
-                  <h2>Сообщение 3.{idx + 1}</h2>
+                <section class="card lesson-card">
+                  <div class="card-head">
+                    <h2>Сообщение 3.{idx + 1}</h2>
+                    <span class="pill">Блок урока</span>
+                  </div>
                   <label>Текст</label>
                   <textarea name="lesson_{idx}_text" rows="7">{esc(lesson.text)}</textarea>
                   <label>Фото/ссылки (по одной строке)</label>
@@ -451,26 +454,198 @@ class CourseBot:
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Milana Bot Admin</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 0; background:#f3f5f7; color:#1c1c1c; }}
-    .wrap {{ max-width: 1100px; margin: 24px auto; padding: 0 16px 48px; }}
-    h1 {{ margin: 0 0 12px; }}
-    .ok {{ background:#e8f7e8; border:1px solid #94d894; padding:10px 12px; border-radius:8px; margin: 12px 0; }}
-    .card {{ background:#fff; border:1px solid #d9dde3; border-radius:12px; padding:16px; margin-top:16px; }}
-    label {{ display:block; font-size:14px; margin:10px 0 6px; color:#4d5561; }}
-    textarea, input[type="number"], input[type="text"], input[type="file"] {{ width:100%; box-sizing:border-box; }}
-    textarea, input[type="number"], input[type="text"] {{ border:1px solid #c9d0d8; border-radius:8px; padding:10px; background:#fff; }}
-    button {{ margin-top:20px; background:#1f6feb; color:#fff; border:none; border-radius:10px; padding:12px 18px; font-size:15px; cursor:pointer; }}
-    .hint {{ font-size:13px; color:#667084; }}
+    :root {{
+      --bg: #070b12;
+      --bg-2: #0d1320;
+      --panel: #121b29;
+      --panel-2: #182437;
+      --line: #2b3b56;
+      --text: #e8f0ff;
+      --muted: #98abc9;
+      --accent: #4fd6a5;
+      --accent-2: #ff9f5b;
+      --focus: #7fdaff;
+      --input: #0f1724;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      color: var(--text);
+      font-family: "Manrope", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(900px 400px at 100% -20%, #14304e66, transparent 70%),
+        radial-gradient(800px 320px at -10% 10%, #1f483866, transparent 70%),
+        linear-gradient(180deg, var(--bg), var(--bg-2));
+      min-height: 100vh;
+    }}
+    .wrap {{
+      max-width: 1120px;
+      margin: 28px auto;
+      padding: 0 16px 40px;
+    }}
+    .top {{
+      position: sticky;
+      top: 12px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel-2) 90%, transparent);
+      backdrop-filter: blur(6px);
+      border-radius: 14px;
+      margin-bottom: 14px;
+    }}
+    h1 {{
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+      letter-spacing: 0.2px;
+    }}
+    .hint {{
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }}
+    .ok {{
+      margin: 12px 0;
+      border: 1px solid #2f7059;
+      background: #123a2c;
+      color: #b7f2dc;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+    }}
+    .card {{
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: linear-gradient(180deg, var(--panel), #101827);
+      padding: 16px;
+      box-shadow: 0 8px 28px #0000002e;
+    }}
+    .card-head {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }}
+    h2 {{
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }}
+    .pill {{
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #3b536f;
+      color: #b4c9e6;
+      font-size: 12px;
+      background: #111c2d;
+    }}
+    label {{
+      display: block;
+      margin: 10px 0 6px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.1px;
+    }}
+    textarea, input[type="number"], input[type="text"], input[type="file"] {{
+      width: 100%;
+    }}
+    textarea,
+    input[type="number"],
+    input[type="text"] {{
+      border: 1px solid #354867;
+      border-radius: 10px;
+      padding: 10px 12px;
+      background: var(--input);
+      color: var(--text);
+      outline: none;
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }}
+    textarea {{ resize: vertical; min-height: 110px; }}
+    textarea:focus,
+    input[type="number"]:focus,
+    input[type="text"]:focus {{
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px #7fdaff22;
+    }}
+    input[type="file"] {{
+      color: var(--muted);
+      border: 1px dashed #395271;
+      border-radius: 10px;
+      padding: 8px;
+      background: #0d1522;
+    }}
+    input[type="file"]::file-selector-button {{
+      margin-right: 10px;
+      border: 0;
+      border-radius: 8px;
+      padding: 7px 12px;
+      font-weight: 600;
+      background: #22314b;
+      color: #d3e6ff;
+      cursor: pointer;
+    }}
+    .actions {{
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }}
+    button {{
+      border: none;
+      border-radius: 11px;
+      padding: 12px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #072013;
+      background: linear-gradient(135deg, var(--accent), #88f5cc);
+      transition: transform .08s ease, filter .15s ease;
+    }}
+    button:hover {{ filter: brightness(1.05); }}
+    button:active {{ transform: translateY(1px); }}
+    .ghost {{
+      color: #fff7ef;
+      background: linear-gradient(135deg, #3a4d69, #2c3d56);
+      border: 1px solid #51698c;
+    }}
+    @media (max-width: 760px) {{
+      .top {{
+        position: static;
+        flex-direction: column;
+        align-items: flex-start;
+      }}
+      h1 {{ font-size: 22px; }}
+      .actions {{ justify-content: stretch; }}
+      .actions button {{ width: 100%; }}
+    }}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Milana Bot Admin</h1>
-    <p class="hint">Редактируй тексты и фото. Для фото можно указать ссылки или загрузить файлы.</p>
+    <header class="top">
+      <div>
+        <h1>Milana Bot Admin</h1>
+        <p class="hint">Редактируй тексты и фото. Для фото можно указывать ссылки или загружать файлы.</p>
+      </div>
+      <button class="ghost" type="submit" form="content-form">Сохранить изменения</button>
+    </header>
     {saved_banner}
-    <form method="post" enctype="multipart/form-data">
+    <form id="content-form" method="post" enctype="multipart/form-data">
       <section class="card">
-        <h2>Сообщение 1 (Start)</h2>
+        <div class="card-head">
+          <h2>Сообщение 1 (Start)</h2>
+          <span class="pill">Приветствие</span>
+        </div>
         <label>Текст</label>
         <textarea name="start_text" rows="9">{esc(dynamic.start_text)}</textarea>
         <label>Фото/ссылки (по одной строке)</label>
@@ -480,14 +655,19 @@ class CourseBot:
       </section>
 
       <section class="card">
-        <h2>Сообщение 2 (Подробнее)</h2>
+        <div class="card-head">
+          <h2>Сообщение 2 (Подробнее)</h2>
+          <span class="pill">Описание курса</span>
+        </div>
         <label>Текст</label>
         <textarea name="course_overview_text" rows="14">{esc(dynamic.course_overview_text)}</textarea>
       </section>
 
       {"".join(lesson_blocks)}
 
-      <button type="submit">Сохранить Изменения</button>
+      <div class="actions">
+        <button type="submit">Сохранить изменения</button>
+      </div>
     </form>
   </div>
 </body>
