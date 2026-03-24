@@ -127,6 +127,7 @@ class CourseBot:
             text=COURSE_OVERVIEW_TEXT,
             reply_markup=details_keyboard(),
             disable_web_page_preview=True,
+            parse_mode=ParseMode.HTML,
         )
 
     async def handle_what_to_expect(self, callback: CallbackQuery) -> None:
@@ -190,7 +191,6 @@ class CourseBot:
             await self._send_with_optional_photos(
                 chat_id=callback.from_user.id,
                 text=payment_text,
-                photos=self._promo_photos(),
                 reply_markup=payment_link_keyboard(result.payment_url),
             )
             return
@@ -396,7 +396,7 @@ class CourseBot:
     async def _notify_admins(self, text: str) -> None:
         for admin_id in self.settings.admin_ids:
             try:
-                await self.bot.send_message(admin_id, text)
+                await self.bot.send_message(admin_id, text, parse_mode=ParseMode.HTML)
             except TelegramBadRequest as exc:
                 logger.warning("Не отправлено администратору %s: %s", admin_id, exc)
 
@@ -461,7 +461,12 @@ class CourseBot:
         photos: tuple[str, ...],
     ) -> None:
         if not photos:
-            await self.bot.send_message(chat_id, text, reply_markup=pay_only_keyboard())
+            await self.bot.send_message(
+                chat_id,
+                text,
+                reply_markup=pay_only_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
             return
 
         if len(photos) == 1:
@@ -471,17 +476,33 @@ class CourseBot:
                     photo=photos[0],
                     caption=text,
                     reply_markup=pay_only_keyboard(),
+                    parse_mode=ParseMode.HTML,
                 )
             except TelegramBadRequest:
-                await self.bot.send_message(chat_id, text, reply_markup=pay_only_keyboard())
+                await self.bot.send_message(
+                    chat_id,
+                    text,
+                    reply_markup=pay_only_keyboard(),
+                    parse_mode=ParseMode.HTML,
+                )
             return
 
         try:
             media = [InputMediaPhoto(media=url) for url in photos]
             await self.bot.send_media_group(chat_id=chat_id, media=media)
-            await self.bot.send_message(chat_id=chat_id, text=text, reply_markup=pay_only_keyboard())
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_markup=pay_only_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
         except TelegramBadRequest:
-            await self.bot.send_message(chat_id, text, reply_markup=pay_only_keyboard())
+            await self.bot.send_message(
+                chat_id,
+                text,
+                reply_markup=pay_only_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
 
     async def _send_with_optional_photos(
         self,
@@ -491,7 +512,12 @@ class CourseBot:
         reply_markup=None,
     ) -> None:
         if not photos:
-            await self.bot.send_message(chat_id, text, reply_markup=reply_markup)
+            await self.bot.send_message(
+                chat_id,
+                text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+            )
             return
 
         if len(photos) == 1:
@@ -501,13 +527,19 @@ class CourseBot:
                     photo=photos[0],
                     caption=text,
                     reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML,
                 )
                 return
             except TelegramBadRequest:
-                await self.bot.send_message(chat_id, text, reply_markup=reply_markup)
+                await self.bot.send_message(
+                    chat_id,
+                    text,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML,
+                )
                 return
 
-        media = [InputMediaPhoto(media=photos[0], caption=text)]
+        media = [InputMediaPhoto(media=photos[0], caption=text, parse_mode=ParseMode.HTML)]
         media.extend(InputMediaPhoto(media=url) for url in photos[1:])
         try:
             await self.bot.send_media_group(chat_id=chat_id, media=media)
@@ -515,7 +547,12 @@ class CourseBot:
                 await self.bot.send_message(chat_id, "Выбери действие:", reply_markup=reply_markup)
             return
         except TelegramBadRequest:
-            await self.bot.send_message(chat_id, text, reply_markup=reply_markup)
+            await self.bot.send_message(
+                chat_id,
+                text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+            )
 
     def _legal_notice(self) -> str:
         if self.settings.offer_url and self.settings.privacy_url:

@@ -21,6 +21,8 @@ def build_token(payload: dict[str, Any], secret_key: str) -> str:
         token_parts[key] = str(value)
     token_parts["Password"] = secret_key
     base = "".join(token_parts[key] for key in sorted(token_parts))
+    print(f"Token base string: {base}")
+    print(f"Token base SHA256: {hashlib.sha256(base.encode('utf-8')).hexdigest()}")
     return hashlib.sha256(base.encode("utf-8")).hexdigest()
 
 
@@ -83,35 +85,25 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    args = parse_args()
-
-    order_id = args.order_id or f"manual_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    order_id = f"manual_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
     payload: dict[str, Any] = {
-        "TerminalKey": args.terminal_key,
-        "Amount": args.amount_kop,
+        "TerminalKey": "1773932386613DEMO",
+        "Amount": 1000,
         "OrderId": order_id,
-        "Description": args.description,
+        "Description": "Manual credentials check",
         "Language": "ru",
         "PayType": "O",
     }
-    if args.notification_url:
-        payload["NotificationURL"] = args.notification_url
-    if args.success_url:
-        payload["SuccessURL"] = args.success_url
-    if args.fail_url:
-        payload["FailURL"] = args.fail_url
+    payload["NotificationURL"] = "https://your-domain.com"
+    payload["SuccessURL"] = "https://your-domain.com"
+    payload["FailURL"] = "https://your-domain.com"
 
-    payload["Token"] = build_token(payload, args.secret_key)
+    payload["Token"] = build_token(payload, "Ujdya2uX2LagNl!#")
 
-    print("Checking T-Bank Init with:")
-    print(f"- API URL: {args.api_url}")
-    print(f"- TerminalKey length: {len(args.terminal_key)}")
-    print(f"- SecretKey length: {len(args.secret_key)}")
-    print(f"- OrderId: {order_id}")
-    print(f"- Amount (kop): {args.amount_kop}")
+
 
     try:
-        response = call_init(args.api_url, payload, args.timeout)
+        response = call_init("https://securepay.tinkoff.ru/v2", payload, 15)
     except RuntimeError as exc:
         print(f"\nRequest failed: {exc}")
         return 2
