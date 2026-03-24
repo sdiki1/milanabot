@@ -250,7 +250,7 @@ class CourseBot:
                 "Пользователь сообщил об оплате:\n"
                 f"- id: <code>{callback.from_user.id}</code>\n"
                 f"- user: {username}\n\n"
-                "Подтвердить доступ: /confirm_paid <user_id>"
+                f"Подтвердить доступ: <code>/confirm_paid {callback.from_user.id}</code>"
             )
             await self._notify_admins(notify_text)
 
@@ -261,7 +261,6 @@ class CourseBot:
         if not message.from_user:
             return
         self.db.set_paid(message.from_user.id, True)
-        await message.answer("Оплата прошла успешно 🤍")
         await self._send_access_links(message.from_user.id)
 
     async def handle_confirm_paid(self, message: Message) -> None:
@@ -364,16 +363,13 @@ class CourseBot:
                 pass
 
     async def _send_access_links(self, user_id: int) -> None:
-        chat_link = await self._create_one_time_link(self.settings.course_chat_id)
         channel_link = await self._create_one_time_link(self.settings.course_channel_id)
 
-        lines = ["Оплата подтверждена! Доступ открыт 🤍"]
-        if chat_link:
-            lines.append(f"Ссылка в закрытый чат (одноразовая):\n{chat_link}")
+        lines = ["Оплата принята, спасибо!!"]
         if channel_link:
-            lines.append(f"Ссылка в канал с уроками:\n{channel_link}")
-        if not chat_link and not channel_link:
-            lines.append("Ссылки не настроены. Напиши в поддержку для выдачи доступа.")
+            lines.append(f"Твоя разовая ссылка на вступление в канал:\n{channel_link}")
+        else:
+            lines.append("Не удалось создать ссылку в канал. Напиши в поддержку для выдачи доступа.")
         lines.append(f"По вопросам: {self.settings.support_contact}")
 
         await self.bot.send_message(user_id, "\n\n".join(lines))
