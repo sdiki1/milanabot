@@ -191,6 +191,7 @@ class CourseBot:
             await self._send_with_optional_photos(
                 chat_id=callback.from_user.id,
                 text=payment_text,
+                photos=None,
                 reply_markup=payment_link_keyboard(result.payment_url),
             )
             return
