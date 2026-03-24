@@ -421,12 +421,14 @@ class CourseBot:
 
     def _render_admin_html(self, saved: bool = False) -> str:
         dynamic = self.content_store.get_content()
+        nl = chr(10)
 
         def esc(value: str) -> str:
             return html.escape(value, quote=True)
 
         lesson_blocks: list[str] = []
         for idx, lesson in enumerate(dynamic.lessons):
+            lesson_photo_urls = esc(nl.join(lesson.photos))
             lesson_blocks.append(
                 f"""
                 <section class="card lesson-card">
@@ -437,7 +439,7 @@ class CourseBot:
                   <label>Текст</label>
                   <textarea name="lesson_{idx}_text" rows="7">{esc(lesson.text)}</textarea>
                   <label>Фото/ссылки (по одной строке)</label>
-                  <textarea name="lesson_{idx}_photo_urls" rows="4">{esc("\\n".join(lesson.photos))}</textarea>
+                  <textarea name="lesson_{idx}_photo_urls" rows="4">{lesson_photo_urls}</textarea>
                   <label>Загрузить фото файлами (добавятся к списку)</label>
                   <input type="file" name="lesson_{idx}_photo_files" multiple accept="image/*" />
                   <label>Задержка печати перед этим блоком (сек)</label>
@@ -649,7 +651,7 @@ class CourseBot:
         <label>Текст</label>
         <textarea name="start_text" rows="9">{esc(dynamic.start_text)}</textarea>
         <label>Фото/ссылки (по одной строке)</label>
-        <textarea name="start_photo_urls" rows="3">{esc("\\n".join(dynamic.start_photos))}</textarea>
+        <textarea name="start_photo_urls" rows="3">{esc(nl.join(dynamic.start_photos))}</textarea>
         <label>Загрузить фото файлами (добавятся к списку)</label>
         <input type="file" name="start_photo_files" multiple accept="image/*" />
       </section>
