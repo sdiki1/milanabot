@@ -54,6 +54,7 @@ class CourseBot:
         self.content_store = ContentStore(
             path=settings.content_store_path,
             upload_dir=settings.content_upload_dir,
+            default_course_price_rub=settings.course_price_rub,
         )
 
         self.bot = Bot(
@@ -160,12 +161,14 @@ class CourseBot:
         if not callback.from_user:
             return
 
+        course_price_rub = self.content_store.get_content().course_price_rub
+
         if self.tbank_client:
             order_id = self._build_order_id(callback.from_user.id)
             try:
                 result = await self.tbank_client.init_payment(
                     order_id=order_id,
-                    amount_kopecks=self.settings.course_price_rub * 100,
+                    amount_kopecks=course_price_rub * 100,
                     description=self.settings.tbank_order_description,
                     data={"tg_user_id": str(callback.from_user.id)},
                 )
@@ -187,7 +190,7 @@ class CourseBot:
             self.db.create_tbank_order(
                 order_id=result.order_id,
                 user_id=callback.from_user.id,
-                amount=self.settings.course_price_rub * 100,
+                amount=course_price_rub * 100,
                 payment_id=result.payment_id,
                 status="NEW",
             )
@@ -199,7 +202,7 @@ class CourseBot:
                     if self.settings.enable_tbank_webhook
                     else "После оплаты нажми «Я оплатила», и мы подтвердим доступ вручную.\n\n"
                 )
-                + f"Стоимость: {self.settings.course_price_rub}₽\n"
+                + f"Стоимость: {course_price_rub}₽\n"
                 f"{self._legal_notice()}"
             )
             await self._send_with_optional_photos(
@@ -221,7 +224,7 @@ class CourseBot:
                 prices=[
                     LabeledPrice(
                         label="Доступ к обучению",
-                        amount=self.settings.course_price_rub * 100,
+                        amount=course_price_rub * 100,
                     )
                 ],
                 start_parameter="beauty_course_access",
@@ -231,7 +234,7 @@ class CourseBot:
         if self.settings.payment_url:
             payment_text = (
                 f"{PAYMENT_TEXT}\n\n"
-                f"Стоимость: {self.settings.course_price_rub}₽\n"
+                f"Стоимость: {course_price_rub}₽\n"
                 f"{self._legal_notice()}"
             )
             await self._send_with_optional_photos(
@@ -363,6 +366,11 @@ class CourseBot:
 
         start_text = str(form.get("start_text", current.start_text))
         overview_text = str(form.get("course_overview_text", current.course_overview_text))
+        price_raw = str(form.get("course_price_rub", current.course_price_rub))
+        try:
+            course_price_rub = max(1, int(price_raw))
+        except ValueError:
+            course_price_rub = current.course_price_rub
 
         start_photo_urls_raw = str(
             form.get("start_photo_urls", "\n".join(current.start_photos))
@@ -397,6 +405,7 @@ class CourseBot:
             start_photos=start_photos,
             course_overview_text=overview_text,
             lessons=lessons_payload,
+            course_price_rub=course_price_rub,
         )
         raise web.HTTPFound(location="/admin?saved=1")
 
@@ -643,6 +652,15 @@ class CourseBot:
     </header>
     {saved_banner}
     <form id="content-form" method="post" enctype="multipart/form-data">
+      <section class="card">
+        <div class="card-head">
+          <h2>Продукт и цена</h2>
+          <span class="pill">Оплата</span>
+        </div>
+        <label>Стоимость продукта, ₽</label>
+        <input type="number" min="1" name="course_price_rub" value="{dynamic.course_price_rub}" />
+      </section>
+
       <section class="card">
         <div class="card-head">
           <h2>Сообщение 1 (Start)</h2>

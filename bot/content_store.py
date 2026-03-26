@@ -21,6 +21,7 @@ class DynamicContent:
     start_photos: tuple[str, ...]
     course_overview_text: str
     lessons: tuple[LessonContent, ...]
+    course_price_rub: int
 
 
 def split_photo_sources(raw_text: str) -> list[str]:
@@ -33,9 +34,10 @@ def split_photo_sources(raw_text: str) -> list[str]:
 
 
 class ContentStore:
-    def __init__(self, path: str, upload_dir: str) -> None:
+    def __init__(self, path: str, upload_dir: str, default_course_price_rub: int) -> None:
         self.path = Path(path)
         self.upload_dir = Path(upload_dir)
+        self.default_course_price_rub = max(1, int(default_course_price_rub))
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._state = self._load_state()
@@ -55,6 +57,7 @@ class ContentStore:
             start_photos=tuple(state["start_photos"]),
             course_overview_text=str(state["course_overview_text"]),
             lessons=lessons,
+            course_price_rub=int(state["course_price_rub"]),
         )
 
     def update(
@@ -63,6 +66,7 @@ class ContentStore:
         start_photos: list[str],
         course_overview_text: str,
         lessons: list[dict[str, Any]],
+        course_price_rub: int,
     ) -> None:
         normalized_lessons: list[dict[str, Any]] = []
         for lesson in lessons:
@@ -83,6 +87,7 @@ class ContentStore:
             "start_photos": [str(p).strip() for p in start_photos if str(p).strip()],
             "course_overview_text": course_overview_text,
             "lessons": normalized_lessons,
+            "course_price_rub": max(1, int(course_price_rub)),
         }
         self._persist_state()
 
@@ -100,6 +105,7 @@ class ContentStore:
                 }
                 for lesson in LESSON_SHOWCASE
             ],
+            "course_price_rub": self.default_course_price_rub,
         }
 
     def _load_state(self) -> dict[str, Any]:
@@ -121,6 +127,11 @@ class ContentStore:
 
         start_text = str(raw.get("start_text", default["start_text"]))
         course_overview_text = str(raw.get("course_overview_text", default["course_overview_text"]))
+        raw_course_price = raw.get("course_price_rub", default["course_price_rub"])
+        try:
+            course_price_rub = max(1, int(raw_course_price))
+        except Exception:
+            course_price_rub = int(default["course_price_rub"])
 
         raw_start_photos = raw.get("start_photos", default["start_photos"])
         start_photos = [str(p).strip() for p in raw_start_photos if str(p).strip()] if isinstance(raw_start_photos, list) else list(default["start_photos"])
@@ -155,6 +166,7 @@ class ContentStore:
             "start_photos": start_photos,
             "course_overview_text": course_overview_text,
             "lessons": lessons,
+            "course_price_rub": course_price_rub,
         }
         self._persist_raw(normalized)
         return normalized
