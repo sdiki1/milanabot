@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import Lock
+
+
+@dataclass(frozen=True)
+class TBankOrder:
+    order_id: str
+    user_id: int
+    amount: int
+    payment_id: str
+    status: str
 
 
 class Database:
@@ -178,3 +188,26 @@ class Database:
             )
             row = cursor.fetchone()
         return int(row[0]) if row else None
+
+    def get_last_tbank_order_for_user(self, user_id: int) -> TBankOrder | None:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT order_id, user_id, amount, COALESCE(payment_id, ''), status
+                FROM tbank_orders
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            )
+            row = cursor.fetchone()
+        if not row:
+            return None
+        return TBankOrder(
+            order_id=str(row[0]),
+            user_id=int(row[1]),
+            amount=int(row[2]),
+            payment_id=str(row[3]),
+            status=str(row[4]),
+        )

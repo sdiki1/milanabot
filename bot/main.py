@@ -251,25 +251,91 @@ class CourseBot:
         )
 
     async def handle_paid_request(self, callback: CallbackQuery) -> None:
-        await callback.answer("Запрос отправлен, проверяем оплату.")
+        await callback.answer("Проверяю статус оплаты...")
         if not callback.from_user:
             return
 
-        await self.bot.send_message(callback.from_user.id, PAID_PENDING_TEXT)
+        user_id = callback.from_user.id
+        if self.db.is_paid(user_id):
+            await self.bot.send_message(
+                user_id,
+                "Оплата уже подтверждена. Доступ выдан ранее.",
+            )
+            return
 
-        if self.settings.admin_ids:
-            username = (
-                f"@{callback.from_user.username}"
-                if callback.from_user.username
-                else callback.from_user.full_name
+        if self.tbank_client:
+            last_order = self.db.get_last_tbank_order_for_user(user_id)
+            if not last_order:
+                await self.bot.send_message(
+                    user_id,
+                    "Я не нашла платеж в T‑Bank для твоего аккаунта. Нажми «Оплатить» и после оплаты попробуй снова.",
+                )
+                return
+
+            try:
+                state = await self.tbank_client.get_payment_state(
+                    payment_id=last_order.payment_id,
+                    order_id=last_order.order_id,
+                )
+            except TBankError as exc:
+                logger.warning("Ошибка T-Bank GetState для user=%s: %s", user_id, exc)
+                await self.bot.send_message(user_id, PAID_PENDING_TEXT)
+                await self._notify_paid_request_admins(
+                    callback.from_user,
+                    tbank_status="GET_STATE_ERROR",
+                    order_id=last_order.order_id,
+                )
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Неожиданная ошибка T-Bank GetState user=%s: %s", user_id, exc)
+                await self.bot.send_message(user_id, PAID_PENDING_TEXT)
+                await self._notify_paid_request_admins(
+                    callback.from_user,
+                    tbank_status="GET_STATE_EXCEPTION",
+                    order_id=last_order.order_id,
+                )
+                return
+
+            resolved_order_id = state.order_id or last_order.order_id
+            resolved_payment_id = state.payment_id or last_order.payment_id
+            resolved_status = state.status or last_order.status or "UNKNOWN"
+            self.db.update_tbank_order_status(
+                resolved_order_id,
+                resolved_status,
+                resolved_payment_id,
             )
-            notify_text = (
-                "Пользователь сообщил об оплате:\n"
-                f"- id: <code>{callback.from_user.id}</code>\n"
-                f"- user: {username}\n\n"
-                f"Подтвердить доступ: <code>/confirm_paid {callback.from_user.id}</code>"
+
+            if (
+                state.success
+                and state.error_code in {"", "0"}
+                and resolved_status in {"AUTHORIZED", "CONFIRMED"}
+            ):
+                self.db.set_paid(user_id, True)
+                await self._send_access_links(user_id)
+                await self._notify_paid_request_admins(
+                    callback.from_user,
+                    tbank_status=resolved_status,
+                    order_id=resolved_order_id,
+                )
+                return
+
+            if resolved_status in {"REJECTED", "CANCELED", "DEADLINE_EXPIRED"}:
+                await self.bot.send_message(
+                    user_id,
+                    "Платеж не завершен. Проверь оплату и попробуй снова через кнопку «Оплатить».",
+                )
+                return
+
+            await self.bot.send_message(user_id, PAID_PENDING_TEXT)
+            await self._notify_paid_request_admins(
+                callback.from_user,
+                tbank_status=resolved_status,
+                order_id=resolved_order_id,
             )
-            await self._notify_admins(notify_text)
+            return
+
+        await self.bot.send_message(user_id, PAID_PENDING_TEXT)
+        await self._notify_paid_request_admins(callback.from_user)
 
     async def handle_pre_checkout_query(self, pre_checkout_query: PreCheckoutQuery) -> None:
         await pre_checkout_query.answer(ok=True)
@@ -296,6 +362,30 @@ class CourseBot:
         self.db.set_paid(user_id, True)
         await self._send_access_links(user_id)
         await message.answer(f"Пользователь {user_id} отмечен как оплативший.")
+
+    async def _notify_paid_request_admins(
+        self,
+        user,
+        tbank_status: str = "",
+        order_id: str = "",
+    ) -> None:
+        if not self.settings.admin_ids:
+            return
+
+        username = html.escape(f"@{user.username}" if user.username else user.full_name)
+        escaped_status = html.escape(tbank_status)
+        escaped_order_id = html.escape(order_id)
+        lines = [
+            "Пользователь сообщил об оплате:",
+            f"- id: <code>{user.id}</code>",
+            f"- user: {username}",
+        ]
+        if tbank_status:
+            lines.append(f"- статус T‑Bank: <code>{escaped_status}</code>")
+        if order_id:
+            lines.append(f"- order_id: <code>{escaped_order_id}</code>")
+        lines.extend(["", f"Подтвердить доступ: <code>/confirm_paid {user.id}</code>"])
+        await self._notify_admins("\n".join(lines))
 
     def _build_order_id(self, user_id: int) -> str:
         return f"mila_{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"

@@ -18,6 +18,17 @@ class TBankInitResult:
     payment_url: str
 
 
+@dataclass(frozen=True)
+class TBankPaymentState:
+    order_id: str
+    payment_id: str
+    status: str
+    success: bool
+    error_code: str
+    message: str
+    details: str
+
+
 def _normalize_token_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -123,3 +134,49 @@ class TBankClient:
             raise TBankError("В ответе Init отсутствует PaymentURL.")
 
         return TBankInitResult(order_id=order_id, payment_id=payment_id, payment_url=payment_url)
+
+    async def get_payment_state(
+        self,
+        payment_id: str = "",
+        order_id: str = "",
+    ) -> TBankPaymentState:
+        payment_id = payment_id.strip()
+        order_id = order_id.strip()
+        if not payment_id and not order_id:
+            raise ValueError("Для GetState нужен payment_id или order_id.")
+
+        payload: dict[str, Any] = {
+            "TerminalKey": self.terminal_key,
+        }
+        if payment_id:
+            payload["PaymentId"] = payment_id
+        if order_id:
+            payload["OrderId"] = order_id
+        payload["Token"] = build_token(payload, self.password)
+
+        endpoint = f"{self.api_url}/GetState"
+        async with aiohttp.ClientSession(timeout=self.timeout) as session:
+            async with session.post(endpoint, json=payload) as response:
+                response_payload = await response.json(content_type=None)
+
+        if not isinstance(response_payload, dict):
+            raise TBankError("Некорректный ответ от T-Bank GetState.")
+
+        raw_success = response_payload.get("Success")
+        success = raw_success is True or str(raw_success).lower() in {"true", "1"}
+        status = str(response_payload.get("Status", "")).upper().strip()
+        error_code = str(response_payload.get("ErrorCode", "")).strip()
+        message = str(response_payload.get("Message", "")).strip()
+        details = str(response_payload.get("Details", "")).strip()
+        resolved_order_id = str(response_payload.get("OrderId", order_id)).strip()
+        resolved_payment_id = str(response_payload.get("PaymentId", payment_id)).strip()
+
+        return TBankPaymentState(
+            order_id=resolved_order_id,
+            payment_id=resolved_payment_id,
+            status=status,
+            success=success,
+            error_code=error_code,
+            message=message,
+            details=details,
+        )
