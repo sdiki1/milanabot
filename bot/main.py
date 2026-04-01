@@ -9,6 +9,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from aiohttp import web
@@ -441,8 +442,30 @@ class CourseBot:
     async def _handle_admin_get(self, request: web.Request) -> web.Response:
         if not self._is_admin_authorized(request):
             return self._admin_unauthorized()
+        mailing_message = ""
+        mailing_message_class = ""
+        if request.query.get("mailing") == "1":
+            if request.query.get("mailing_error") == "empty_text":
+                mailing_message = "Рассылка не отправлена: добавь текст сообщения."
+                mailing_message_class = "warn"
+            else:
+                total = self._parse_non_negative_int(request.query.get("mailing_total"))
+                sent = self._parse_non_negative_int(request.query.get("mailing_sent"))
+                failed = self._parse_non_negative_int(request.query.get("mailing_failed"))
+                mailing_message = (
+                    "Рассылка завершена. "
+                    f"Неоплативших: {total}; отправлено: {sent}; ошибок: {failed}."
+                )
+                mailing_message_class = "ok"
+
+        unpaid_count = len(self.db.get_all_unpaid_user_ids())
         return web.Response(
-            text=self._render_admin_html(saved=request.query.get("saved") == "1"),
+            text=self._render_admin_html(
+                saved=request.query.get("saved") == "1",
+                unpaid_count=unpaid_count,
+                mailing_message=mailing_message,
+                mailing_message_class=mailing_message_class,
+            ),
             content_type="text/html",
         )
 
@@ -451,6 +474,42 @@ class CourseBot:
             return self._admin_unauthorized()
 
         form = await request.post()
+        action = str(form.get("action", "save_content"))
+        if action == "broadcast_unpaid":
+            broadcast_text = str(form.get("broadcast_text", "")).strip()
+            if not broadcast_text:
+                raise web.HTTPFound(
+                    location=self._build_admin_location(
+                        mailing=1,
+                        mailing_error="empty_text",
+                    )
+                )
+
+            with_pay_button = str(form.get("broadcast_with_pay_button", "")).lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+            total, sent, failed = await self._send_unpaid_broadcast(
+                text=broadcast_text,
+                with_pay_button=with_pay_button,
+            )
+            logger.info(
+                "Admin broadcast to unpaid completed: total=%s sent=%s failed=%s",
+                total,
+                sent,
+                failed,
+            )
+            raise web.HTTPFound(
+                location=self._build_admin_location(
+                    mailing=1,
+                    mailing_total=total,
+                    mailing_sent=sent,
+                    mailing_failed=failed,
+                )
+            )
+
         current = self.content_store.get_content()
         lesson_count = len(current.lessons)
 
@@ -497,7 +556,53 @@ class CourseBot:
             lessons=lessons_payload,
             course_price_rub=course_price_rub,
         )
-        raise web.HTTPFound(location="/admin?saved=1")
+        raise web.HTTPFound(location=self._build_admin_location(saved=1))
+
+    @staticmethod
+    def _parse_non_negative_int(raw_value: str | None) -> int:
+        try:
+            value = int(raw_value or "0")
+        except ValueError:
+            return 0
+        return max(0, value)
+
+    @staticmethod
+    def _build_admin_location(**params: int | str) -> str:
+        encoded = urlencode({key: str(value) for key, value in params.items()})
+        return f"/admin?{encoded}" if encoded else "/admin"
+
+    async def _send_unpaid_broadcast(self, text: str, with_pay_button: bool) -> tuple[int, int, int]:
+        unpaid_user_ids = self.db.get_all_unpaid_user_ids()
+        total = len(unpaid_user_ids)
+        if total == 0:
+            return 0, 0, 0
+
+        sent = 0
+        failed = 0
+        escaped_text = html.escape(text)
+        reply_markup = pay_only_keyboard() if with_pay_button else None
+
+        for user_id in unpaid_user_ids:
+            try:
+                await self.bot.send_message(
+                    chat_id=user_id,
+                    text=escaped_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True,
+                )
+                sent += 1
+            except TelegramForbiddenError:
+                failed += 1
+            except TelegramBadRequest as exc:
+                failed += 1
+                logger.warning("Broadcast to user %s failed: %s", user_id, exc)
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                logger.exception("Unexpected broadcast error for user %s: %s", user_id, exc)
+            await asyncio.sleep(0.05)
+
+        return total, sent, failed
 
     def _extract_uploaded_paths(self, form, field_name: str) -> list[str]:
         values = form.getall(field_name, [])
@@ -518,7 +623,13 @@ class CourseBot:
             saved_paths.append(str(path))
         return saved_paths
 
-    def _render_admin_html(self, saved: bool = False) -> str:
+    def _render_admin_html(
+        self,
+        saved: bool = False,
+        unpaid_count: int = 0,
+        mailing_message: str = "",
+        mailing_message_class: str = "",
+    ) -> str:
         dynamic = self.content_store.get_content()
         nl = chr(10)
 
@@ -548,6 +659,11 @@ class CourseBot:
             )
 
         saved_banner = "<div class='ok'>Сохранено.</div>" if saved else ""
+        mailing_banner = (
+            f"<div class='{mailing_message_class}'>{esc(mailing_message)}</div>"
+            if mailing_message and mailing_message_class in {"ok", "warn"}
+            else ""
+        )
         return f"""<!doctype html>
 <html lang="ru">
 <head>
@@ -616,6 +732,15 @@ class CourseBot:
       border: 1px solid #2f7059;
       background: #123a2c;
       color: #b7f2dc;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+    }}
+    .warn {{
+      margin: 12px 0;
+      border: 1px solid #7e5d33;
+      background: #3a2913;
+      color: #ffd9ad;
       padding: 10px 12px;
       border-radius: 10px;
       font-size: 14px;
@@ -701,6 +826,31 @@ class CourseBot:
       margin-top: 20px;
       margin-bottom: 10px;
     }}
+    .broadcast-actions {{
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 16px;
+      margin-bottom: 0;
+    }}
+    .broadcast-meta {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }}
+    .check {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      color: var(--text);
+      font-size: 14px;
+    }}
+    .check input[type="checkbox"] {{
+      width: 16px;
+      height: 16px;
+      margin: 0;
+    }}
     button {{
       border: none;
       border-radius: 11px;
@@ -728,6 +878,8 @@ class CourseBot:
       h1 {{ font-size: 22px; }}
       .actions {{ justify-content: stretch; }}
       .actions button {{ width: 100%; }}
+      .broadcast-actions {{ justify-content: stretch; }}
+      .broadcast-actions button {{ width: 100%; }}
     }}
   </style>
 </head>
@@ -741,7 +893,38 @@ class CourseBot:
       <button class="ghost" type="submit" form="content-form">Сохранить изменения</button>
     </header>
     {saved_banner}
+    {mailing_banner}
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Рассылка неоплатившим</h2>
+        <span class="pill">CRM</span>
+      </div>
+      <p class="broadcast-meta">
+        Сообщение отправится всем пользователям с признаком <code>is_paid = 0</code>.
+        Сейчас в базе неоплативших: <strong>{unpaid_count}</strong>.
+      </p>
+      <form id="broadcast-form" method="post">
+        <input type="hidden" name="action" value="broadcast_unpaid" />
+        <label>Текст рассылки</label>
+        <textarea
+          name="broadcast_text"
+          rows="6"
+          placeholder="Например: До конца недели действует спеццена на курс..."
+          required
+        ></textarea>
+        <label class="check">
+          <input type="checkbox" name="broadcast_with_pay_button" checked />
+          Добавить кнопку «Оплатить»
+        </label>
+        <div class="broadcast-actions">
+          <button type="submit" class="ghost">Отправить рассылку</button>
+        </div>
+      </form>
+    </section>
+
     <form id="content-form" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="action" value="save_content" />
       <section class="card">
         <div class="card-head">
           <h2>Продукт и цена</h2>

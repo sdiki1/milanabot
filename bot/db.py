@@ -119,6 +119,19 @@ class Database:
             rows = cursor.fetchall()
         return [int(row[0]) for row in rows]
 
+    def get_all_unpaid_user_ids(self) -> list[int]:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT user_id
+                FROM users
+                WHERE is_paid = 0
+                ORDER BY created_at ASC
+                """
+            )
+            rows = cursor.fetchall()
+        return [int(row[0]) for row in rows]
+
     def mark_reminder_sent(self, user_id: int, reminder_id: str) -> None:
         sent_at_utc = datetime.now(timezone.utc).isoformat()
         with self._lock:
