@@ -17,7 +17,7 @@ from aiohttp.web_request import FileField
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ChatAction, ParseMode
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
@@ -93,6 +93,7 @@ class CourseBot:
         self.dp.message.register(self.handle_successful_payment, F.successful_payment)
         self.dp.message.register(self.handle_confirm_paid, Command("confirm_paid"))
         self.dp.message.register(self.handle_getidmessage, Command("getidmessage"))
+        self.dp.message.register(self.handle_deleteee, Command("deleteee"))
 
     async def on_startup(self, bot: Bot) -> None:
         logger.info("Бот запущен. Кампания: %s", self.settings.campaign_year)
@@ -370,6 +371,37 @@ class CourseBot:
             await message.answer("Ответь командой /getidmessage на нужное сообщение.")
             return
         await message.answer(f"ID сообщения: <code>{message.reply_to_message.message_id}</code>")
+
+    async def handle_deleteee(self, message: Message) -> None:
+        if not message.from_user or message.from_user.id not in self.settings.admin_ids:
+            return
+
+        start_message_id = 950
+        end_message_id = 1009
+
+        users = self.db.get_all_users_for_admin()
+        user_ids = [user.user_id for user in users]
+        if not user_ids:
+            await message.answer("В базе нет пользователей для удаления сообщений.")
+            return
+
+        total_attempts = len(user_ids) * (end_message_id - start_message_id + 1)
+        await message.answer(
+            f"Запускаю удаление сообщений {start_message_id}-{end_message_id} "
+            f"для {len(user_ids)} пользователей ({total_attempts} попыток)."
+        )
+        deleted, skipped, failed = await self._delete_messages_for_user_ids(
+            user_ids=user_ids,
+            start_message_id=start_message_id,
+            end_message_id=end_message_id,
+        )
+        await message.answer(
+            "Удаление завершено.\n"
+            f"- пользователей: {len(user_ids)}\n"
+            f"- удалено: {deleted}\n"
+            f"- пропущено: {skipped}\n"
+            f"- ошибок: {failed}"
+        )
 
     async def _notify_paid_request_admins(
         self,
@@ -677,6 +709,97 @@ class CourseBot:
             await asyncio.sleep(0.05)
 
         return total, sent, failed
+
+    async def _delete_messages_for_user_ids(
+        self,
+        user_ids: list[int],
+        start_message_id: int,
+        end_message_id: int,
+    ) -> tuple[int, int, int]:
+        deleted = 0
+        skipped = 0
+        failed = 0
+
+        for user_id in user_ids:
+            message_id = start_message_id
+            while message_id <= end_message_id:
+                result = await self._delete_message_once(user_id, message_id)
+                if result == "forbidden":
+                    skipped += end_message_id - message_id + 1
+                    break
+                if result == "deleted":
+                    deleted += 1
+                elif result == "skipped":
+                    skipped += 1
+                else:
+                    failed += 1
+                message_id += 1
+                await asyncio.sleep(0.03)
+
+        return deleted, skipped, failed
+
+    async def _delete_message_once(self, chat_id: int, message_id: int) -> str:
+        try:
+            await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            return "deleted"
+        except TelegramRetryAfter as exc:
+            await asyncio.sleep(max(0.2, float(exc.retry_after)))
+            try:
+                await self.bot.delete_message(chat_id=chat_id, message_id=message_id)
+                return "deleted"
+            except TelegramForbiddenError:
+                return "forbidden"
+            except TelegramBadRequest as retry_exc:
+                if self._is_delete_bad_request_expected(retry_exc):
+                    return "skipped"
+                logger.warning(
+                    "Delete failed chat_id=%s message_id=%s: %s",
+                    chat_id,
+                    message_id,
+                    retry_exc,
+                )
+                return "failed"
+            except Exception as retry_exc:  # noqa: BLE001
+                logger.exception(
+                    "Unexpected delete error chat_id=%s message_id=%s: %s",
+                    chat_id,
+                    message_id,
+                    retry_exc,
+                )
+                return "failed"
+        except TelegramForbiddenError:
+            return "forbidden"
+        except TelegramBadRequest as exc:
+            if self._is_delete_bad_request_expected(exc):
+                return "skipped"
+            logger.warning(
+                "Delete failed chat_id=%s message_id=%s: %s",
+                chat_id,
+                message_id,
+                exc,
+            )
+            return "failed"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Unexpected delete error chat_id=%s message_id=%s: %s",
+                chat_id,
+                message_id,
+                exc,
+            )
+            return "failed"
+
+    @staticmethod
+    def _is_delete_bad_request_expected(exc: TelegramBadRequest) -> bool:
+        lowered = str(exc).lower()
+        markers = (
+            "message to delete not found",
+            "message can't be deleted",
+            "message identifier is not specified",
+            "message id invalid",
+            "message_id_invalid",
+            "chat not found",
+        )
+        return any(marker in lowered for marker in markers)
 
     async def _send_broadcast_message(
         self,
