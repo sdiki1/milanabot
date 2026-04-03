@@ -392,7 +392,8 @@ class CourseBot:
         return f"mila_{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
     async def _start_http_server(self) -> None:
-        app = web.Application()
+        # Админ-панель отправляет multipart/form-data с фото, поэтому увеличиваем лимит тела запроса.
+        app = web.Application(client_max_size=10 * 1024 * 1024)
         app.router.add_get("/", self._handle_root)
         if self.settings.enable_tbank_webhook:
             app.router.add_post(self.settings.webhook_path, self._handle_tbank_notification)
@@ -697,16 +698,28 @@ class CourseBot:
                 return
             except TelegramBadRequest as exc:
                 lowered = str(exc).lower()
-                if not any(marker in lowered for marker in parse_mode_error_markers):
-                    raise
-                await self.bot.send_photo(
-                    chat_id=chat_id,
-                    photo=self._photo_input(photo_source),
-                    caption=safe_text,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=reply_markup,
-                )
-                return
+                if any(marker in lowered for marker in parse_mode_error_markers):
+                    try:
+                        await self.bot.send_photo(
+                            chat_id=chat_id,
+                            photo=self._photo_input(photo_source),
+                            caption=safe_text,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=reply_markup,
+                        )
+                        return
+                    except TelegramBadRequest as escaped_exc:
+                        logger.warning(
+                            "Broadcast photo to user %s failed after caption escaping: %s",
+                            chat_id,
+                            escaped_exc,
+                        )
+                else:
+                    logger.warning(
+                        "Broadcast photo to user %s failed, fallback to text: %s",
+                        chat_id,
+                        exc,
+                    )
 
         try:
             await self.bot.send_message(
