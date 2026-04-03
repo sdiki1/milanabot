@@ -15,6 +15,14 @@ class TBankOrder:
     status: str
 
 
+@dataclass(frozen=True)
+class AdminUser:
+    user_id: int
+    username: str
+    first_name: str
+    is_paid: bool
+
+
 class Database:
     def __init__(self, path: str) -> None:
         self._connection = sqlite3.connect(path, check_same_thread=False)
@@ -131,6 +139,39 @@ class Database:
             )
             rows = cursor.fetchall()
         return [int(row[0]) for row in rows]
+
+    def get_all_users_for_admin(self) -> list[AdminUser]:
+        with self._lock:
+            cursor = self._connection.execute(
+                """
+                SELECT
+                    user_id,
+                    COALESCE(username, ''),
+                    COALESCE(first_name, ''),
+                    is_paid
+                FROM users
+                ORDER BY created_at DESC
+                """
+            )
+            rows = cursor.fetchall()
+        return [
+            AdminUser(
+                user_id=int(row[0]),
+                username=str(row[1]),
+                first_name=str(row[2]),
+                is_paid=bool(row[3]),
+            )
+            for row in rows
+        ]
+
+    def user_exists(self, user_id: int) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                "SELECT 1 FROM users WHERE user_id = ? LIMIT 1",
+                (user_id,),
+            )
+            row = cursor.fetchone()
+        return row is not None
 
     def mark_reminder_sent(self, user_id: int, reminder_id: str) -> None:
         sent_at_utc = datetime.now(timezone.utc).isoformat()

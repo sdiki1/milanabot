@@ -445,24 +445,44 @@ class CourseBot:
         mailing_message = ""
         mailing_message_class = ""
         if request.query.get("mailing") == "1":
-            if request.query.get("mailing_error") == "empty_text":
+            mailing_error = request.query.get("mailing_error")
+            if mailing_error == "empty_text":
                 mailing_message = "Рассылка не отправлена: добавь текст сообщения."
+                mailing_message_class = "warn"
+            elif mailing_error == "target_user_required":
+                mailing_message = "Рассылка не отправлена: выбери пользователя для точечной отправки."
+                mailing_message_class = "warn"
+            elif mailing_error == "target_user_not_found":
+                mailing_message = (
+                    "Рассылка не отправлена: выбранный пользователь не найден в базе."
+                )
                 mailing_message_class = "warn"
             else:
                 total = self._parse_non_negative_int(request.query.get("mailing_total"))
                 sent = self._parse_non_negative_int(request.query.get("mailing_sent"))
                 failed = self._parse_non_negative_int(request.query.get("mailing_failed"))
-                mailing_message = (
-                    "Рассылка завершена. "
-                    f"Неоплативших: {total}; отправлено: {sent}; ошибок: {failed}."
-                )
+                if request.query.get("mailing_target") == "single":
+                    target_user = self._parse_non_negative_int(
+                        request.query.get("mailing_target_user")
+                    )
+                    mailing_message = (
+                        "Точечная рассылка завершена. "
+                        f"user_id: {target_user}; отправлено: {sent}; ошибок: {failed}."
+                    )
+                else:
+                    mailing_message = (
+                        "Рассылка завершена. "
+                        f"Неоплативших: {total}; отправлено: {sent}; ошибок: {failed}."
+                    )
                 mailing_message_class = "ok"
 
         unpaid_count = len(self.db.get_all_unpaid_user_ids())
+        admin_users = self.db.get_all_users_for_admin()
         return web.Response(
             text=self._render_admin_html(
                 saved=request.query.get("saved") == "1",
                 unpaid_count=unpaid_count,
+                admin_users=admin_users,
                 mailing_message=mailing_message,
                 mailing_message_class=mailing_message_class,
             ),
@@ -485,6 +505,35 @@ class CourseBot:
                     )
                 )
 
+            broadcast_target_mode = str(form.get("broadcast_target_mode", "unpaid")).strip().lower()
+            if broadcast_target_mode not in {"unpaid", "single"}:
+                broadcast_target_mode = "unpaid"
+
+            target_user_id: int | None = None
+            if broadcast_target_mode == "single":
+                target_user_raw = str(form.get("broadcast_target_user_id", "")).strip()
+                try:
+                    target_user_id = int(target_user_raw)
+                except ValueError:
+                    target_user_id = None
+                if not target_user_id or target_user_id <= 0:
+                    raise web.HTTPFound(
+                        location=self._build_admin_location(
+                            mailing=1,
+                            mailing_error="target_user_required",
+                        )
+                    )
+                if not self.db.user_exists(target_user_id):
+                    raise web.HTTPFound(
+                        location=self._build_admin_location(
+                            mailing=1,
+                            mailing_error="target_user_not_found",
+                        )
+                    )
+
+            broadcast_photo_paths = self._extract_uploaded_paths(form, "broadcast_photo_file")
+            broadcast_photo = broadcast_photo_paths[0] if broadcast_photo_paths else ""
+
             with_pay_button = str(form.get("broadcast_with_pay_button", "")).lower() in {
                 "1",
                 "true",
@@ -494,20 +543,28 @@ class CourseBot:
             total, sent, failed = await self._send_unpaid_broadcast(
                 text=broadcast_text,
                 with_pay_button=with_pay_button,
+                target_user_id=target_user_id,
+                photo_source=broadcast_photo,
             )
             logger.info(
-                "Admin broadcast to unpaid completed: total=%s sent=%s failed=%s",
+                "Admin broadcast completed: mode=%s target_user=%s total=%s sent=%s failed=%s",
+                broadcast_target_mode,
+                target_user_id,
                 total,
                 sent,
                 failed,
             )
+            redirect_params: dict[str, int | str] = {
+                "mailing": 1,
+                "mailing_total": total,
+                "mailing_sent": sent,
+                "mailing_failed": failed,
+            }
+            if broadcast_target_mode == "single" and target_user_id is not None:
+                redirect_params["mailing_target"] = "single"
+                redirect_params["mailing_target_user"] = target_user_id
             raise web.HTTPFound(
-                location=self._build_admin_location(
-                    mailing=1,
-                    mailing_total=total,
-                    mailing_sent=sent,
-                    mailing_failed=failed,
-                )
+                location=self._build_admin_location(**redirect_params)
             )
 
         current = self.content_store.get_content()
@@ -571,25 +628,34 @@ class CourseBot:
         encoded = urlencode({key: str(value) for key, value in params.items()})
         return f"/admin?{encoded}" if encoded else "/admin"
 
-    async def _send_unpaid_broadcast(self, text: str, with_pay_button: bool) -> tuple[int, int, int]:
-        unpaid_user_ids = self.db.get_all_unpaid_user_ids()
-        total = len(unpaid_user_ids)
+    async def _send_unpaid_broadcast(
+        self,
+        text: str,
+        with_pay_button: bool,
+        target_user_id: int | None = None,
+        photo_source: str = "",
+    ) -> tuple[int, int, int]:
+        target_user_ids = (
+            [target_user_id]
+            if target_user_id is not None
+            else self.db.get_all_unpaid_user_ids()
+        )
+        total = len(target_user_ids)
         if total == 0:
             return 0, 0, 0
 
         sent = 0
         failed = 0
-        escaped_text = html.escape(text)
+        normalized_photo = photo_source.strip()
         reply_markup = pay_only_keyboard() if with_pay_button else None
 
-        for user_id in unpaid_user_ids:
+        for user_id in target_user_ids:
             try:
-                await self.bot.send_message(
+                await self._send_broadcast_message(
                     chat_id=user_id,
-                    text=escaped_text,
-                    parse_mode=ParseMode.HTML,
+                    text=text,
+                    photo_source=normalized_photo,
                     reply_markup=reply_markup,
-                    disable_web_page_preview=True,
                 )
                 sent += 1
             except TelegramForbiddenError:
@@ -603,6 +669,64 @@ class CourseBot:
             await asyncio.sleep(0.05)
 
         return total, sent, failed
+
+    async def _send_broadcast_message(
+        self,
+        chat_id: int,
+        text: str,
+        photo_source: str,
+        reply_markup=None,
+    ) -> None:
+        safe_text = html.escape(text)
+        parse_mode_error_markers = (
+            "can't parse entities",
+            "entity beginning",
+            "unsupported start tag",
+            "entity end",
+        )
+
+        if photo_source:
+            try:
+                await self.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=self._photo_input(photo_source),
+                    caption=text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
+                )
+                return
+            except TelegramBadRequest as exc:
+                lowered = str(exc).lower()
+                if not any(marker in lowered for marker in parse_mode_error_markers):
+                    raise
+                await self.bot.send_photo(
+                    chat_id=chat_id,
+                    photo=self._photo_input(photo_source),
+                    caption=safe_text,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=reply_markup,
+                )
+                return
+
+        try:
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                disable_web_page_preview=True,
+            )
+        except TelegramBadRequest as exc:
+            lowered = str(exc).lower()
+            if not any(marker in lowered for marker in parse_mode_error_markers):
+                raise
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=safe_text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=reply_markup,
+                disable_web_page_preview=True,
+            )
 
     def _extract_uploaded_paths(self, form, field_name: str) -> list[str]:
         values = form.getall(field_name, [])
@@ -627,14 +751,29 @@ class CourseBot:
         self,
         saved: bool = False,
         unpaid_count: int = 0,
+        admin_users: list | None = None,
         mailing_message: str = "",
         mailing_message_class: str = "",
     ) -> str:
         dynamic = self.content_store.get_content()
         nl = chr(10)
+        if admin_users is None:
+            admin_users = []
 
         def esc(value: str) -> str:
             return html.escape(value, quote=True)
+
+        user_options = ["<option value=''>Выбери пользователя</option>"]
+        for user in admin_users:
+            username = f"@{user.username}" if user.username else ""
+            identity = " ".join(part for part in (user.first_name, username) if part).strip()
+            if not identity:
+                identity = "без имени"
+            paid_state = "оплачен" if user.is_paid else "не оплачен"
+            user_options.append(
+                f"<option value='{user.user_id}'>{user.user_id} — {esc(identity)} ({paid_state})</option>"
+            )
+        user_options_html = "".join(user_options)
 
         lesson_blocks: list[str] = []
         for idx, lesson in enumerate(dynamic.lessons):
@@ -782,12 +921,13 @@ class CourseBot:
       font-size: 13px;
       letter-spacing: 0.1px;
     }}
-    textarea, input[type="number"], input[type="text"], input[type="file"] {{
+    textarea, input[type="number"], input[type="text"], input[type="file"], select {{
       width: 100%;
     }}
     textarea,
     input[type="number"],
-    input[type="text"] {{
+    input[type="text"],
+    select {{
       border: 1px solid #354867;
       border-radius: 10px;
       padding: 10px 12px;
@@ -799,9 +939,22 @@ class CourseBot:
     textarea {{ resize: vertical; min-height: 110px; }}
     textarea:focus,
     input[type="number"]:focus,
-    input[type="text"]:focus {{
+    input[type="text"]:focus,
+    select:focus {{
       border-color: var(--focus);
       box-shadow: 0 0 0 3px #7fdaff22;
+    }}
+    select {{
+      appearance: none;
+      background-image:
+        linear-gradient(45deg, transparent 50%, #9db9df 50%),
+        linear-gradient(135deg, #9db9df 50%, transparent 50%);
+      background-position:
+        calc(100% - 18px) calc(50% + 1px),
+        calc(100% - 12px) calc(50% + 1px);
+      background-size: 6px 6px, 6px 6px;
+      background-repeat: no-repeat;
+      padding-right: 34px;
     }}
     input[type="file"] {{
       color: var(--muted);
@@ -837,6 +990,12 @@ class CourseBot:
       color: var(--muted);
       font-size: 13px;
       line-height: 1.5;
+    }}
+    .field-hint {{
+      margin: 6px 0 0;
+      color: #7f95b9;
+      font-size: 12px;
+      line-height: 1.45;
     }}
     .check {{
       display: flex;
@@ -904,7 +1063,7 @@ class CourseBot:
         Сообщение отправится всем пользователям с признаком <code>is_paid = 0</code>.
         Сейчас в базе неоплативших: <strong>{unpaid_count}</strong>.
       </p>
-      <form id="broadcast-form" method="post">
+      <form id="broadcast-form" method="post" enctype="multipart/form-data">
         <input type="hidden" name="action" value="broadcast_unpaid" />
         <label>Текст рассылки</label>
         <textarea
@@ -913,6 +1072,19 @@ class CourseBot:
           placeholder="Например: До конца недели действует спеццена на курс..."
           required
         ></textarea>
+        <label>Кому отправить</label>
+        <select name="broadcast_target_mode" id="broadcast_target_mode">
+          <option value="unpaid" selected>Всем неоплатившим</option>
+          <option value="single">Одному пользователю</option>
+        </select>
+        <label>Пользователь для точечной отправки</label>
+        <select name="broadcast_target_user_id" id="broadcast_target_user_id" disabled>
+          {user_options_html}
+        </select>
+        <p class="field-hint">Список берется из пользователей, которые уже запускали бота.</p>
+        <label>Фото к рассылке (опционально, 1 файл)</label>
+        <input type="file" name="broadcast_photo_file" accept="image/*" />
+        <p class="field-hint">Если выбрать фото, текст уйдет как подпись к изображению.</p>
         <label class="check">
           <input type="checkbox" name="broadcast_with_pay_button" checked />
           Добавить кнопку «Оплатить»
@@ -963,6 +1135,22 @@ class CourseBot:
       </div>
     </form>
   </div>
+  <script>
+    (() => {{
+      const modeSelect = document.getElementById("broadcast_target_mode");
+      const userSelect = document.getElementById("broadcast_target_user_id");
+      if (!modeSelect || !userSelect) {{
+        return;
+      }}
+      const syncUserTargetState = () => {{
+        const singleMode = modeSelect.value === "single";
+        userSelect.disabled = !singleMode;
+        userSelect.required = singleMode;
+      }};
+      modeSelect.addEventListener("change", syncUserTargetState);
+      syncUserTargetState();
+    }})();
+  </script>
 </body>
 </html>
 """
