@@ -92,6 +92,7 @@ class CourseBot:
         self.dp.pre_checkout_query.register(self.handle_pre_checkout_query)
         self.dp.message.register(self.handle_successful_payment, F.successful_payment)
         self.dp.message.register(self.handle_confirm_paid, Command("confirm_paid"))
+        self.dp.message.register(self.handle_getidmessage, Command("getidmessage"))
 
     async def on_startup(self, bot: Bot) -> None:
         logger.info("Бот запущен. Кампания: %s", self.settings.campaign_year)
@@ -363,6 +364,12 @@ class CourseBot:
         self.db.set_paid(user_id, True)
         await self._send_access_links(user_id)
         await message.answer(f"Пользователь {user_id} отмечен как оплативший.")
+
+    async def handle_getidmessage(self, message: Message) -> None:
+        if not message.reply_to_message:
+            await message.answer("Ответь командой /getidmessage на нужное сообщение.")
+            return
+        await message.answer(f"ID сообщения: <code>{message.reply_to_message.message_id}</code>")
 
     async def _notify_paid_request_admins(
         self,
