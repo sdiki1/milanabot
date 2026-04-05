@@ -376,8 +376,8 @@ class CourseBot:
         if not message.from_user or message.from_user.id not in self.settings.admin_ids:
             return
 
-        start_message_id = 950
-        end_message_id = 1009
+        start_message_id = 1130
+        end_message_id = 1300
 
         users = self.db.get_all_users_for_admin()
         user_ids = [user.user_id for user in users]
